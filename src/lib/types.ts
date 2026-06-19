@@ -76,6 +76,20 @@ export type Activity = {
   created_at: string;
 };
 
+export type Appointment = {
+  id: string;
+  lead_id: string;
+  user_id: string | null;
+  store_id: StoreId;
+  title: string;
+  description: string | null;
+  scheduled_start: string;
+  scheduled_end: string;
+  google_event_id: string | null;
+  google_event_link: string | null;
+  created_at: string;
+};
+
 export type DashboardScope =
   | { role: "owner"; storeId?: never; userId?: never }
   | { role: "manager"; storeId: StoreId; userId?: never }
@@ -132,4 +146,3 @@ export type WebhookLeadSnapshot = {
   follow_up_count: number;
   last_activity_at: string;
 };
-
