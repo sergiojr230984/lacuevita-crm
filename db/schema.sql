@@ -90,6 +90,21 @@ CREATE TABLE IF NOT EXISTS activities (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS appointments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES users(id),
+  store_id text NOT NULL REFERENCES stores(id),
+  title text NOT NULL,
+  description text,
+  scheduled_start timestamptz NOT NULL,
+  scheduled_end timestamptz NOT NULL,
+  google_event_id text,
+  google_event_link text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT appointments_valid_time CHECK (scheduled_end > scheduled_start)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_store_role ON users(store_id, role);
 CREATE INDEX IF NOT EXISTS idx_leads_store_status ON leads(store_id, status);
 CREATE INDEX IF NOT EXISTS idx_leads_assigned_user ON leads(assigned_user_id);
@@ -97,6 +112,9 @@ CREATE INDEX IF NOT EXISTS idx_leads_next_follow_up ON leads(next_follow_up_date
 CREATE INDEX IF NOT EXISTS idx_leads_last_activity ON leads(last_activity_at);
 CREATE INDEX IF NOT EXISTS idx_messages_lead_created ON messages(lead_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activities_lead_created ON activities(lead_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_appointments_lead_start ON appointments(lead_id, scheduled_start DESC);
+CREATE INDEX IF NOT EXISTS idx_appointments_store_start ON appointments(store_id, scheduled_start DESC);
+CREATE INDEX IF NOT EXISTS idx_appointments_user_start ON appointments(user_id, scheduled_start DESC);
 
 INSERT INTO stores (id, name, whatsapp_number)
 VALUES
