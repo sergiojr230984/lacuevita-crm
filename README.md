@@ -41,14 +41,34 @@ When `DATABASE_URL` is not set, the app runs in local demo mode with these accou
    - `AUTH_SECRET` as a long random string
    - `WHATSAPP_VERIFY_TOKEN`
    - `NEXT_PUBLIC_APP_NAME=La Cuevita CRM`
+   - `GOOGLE_CALENDAR_ID`
+   - `GOOGLE_CLIENT_EMAIL`
+   - `GOOGLE_PRIVATE_KEY` or `GOOGLE_PRIVATE_KEY_BASE64`
+   - `GOOGLE_CALENDAR_TIME_ZONE=America/New_York`
 5. Deploy the app.
 6. Run `npm run migrate` once against the app service after `DATABASE_URL` is set.
 7. Use the generated Railway domain as the team login link.
+
+## Google Calendar Setup
+
+The CRM creates appointments from the lead panel and saves them into one shared La Cuevita Google Calendar.
+
+1. Create a Google Cloud service account with Google Calendar API access.
+2. Create a service account key in JSON format.
+3. Share the La Cuevita Google Calendar with the service account email and allow it to make changes to events.
+4. Add these Railway variables to the `lacuevita-crm` service:
+   - `GOOGLE_CALENDAR_ID`: the calendar ID from Google Calendar settings.
+   - `GOOGLE_CLIENT_EMAIL`: the service account `client_email`.
+   - `GOOGLE_PRIVATE_KEY`: the service account `private_key`; keep `\n` line breaks as shown in the JSON.
+   - Optional: use `GOOGLE_PRIVATE_KEY_BASE64` instead if Railway has trouble with multiline private keys.
+5. Redeploy the service after saving the variables.
 
 ## Key API Endpoints
 
 - `POST /api/webhooks/whatsapp` - WhatsApp inbound webhook.
 - `POST /api/messages/outbound` - Log salesperson outbound WhatsApp/contact activity.
+- `GET /api/appointments` - List scheduled appointments.
+- `POST /api/appointments` - Schedule a lead appointment in Google Calendar.
 - `GET /api/dashboard` - Owner, manager, and salesperson metrics.
 - `GET /api/leads` - List leads.
 - `PATCH /api/leads/:id` - Update lead fields or pipeline status.
