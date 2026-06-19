@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node .next/standalone/server.js",
+    "start": "next start",
     "lint": "eslint src tests eslint.config.mjs",
     "migrate": "node scripts/migrate.mjs",
     "test": "node --experimental-strip-types --experimental-loader ./tests/ts-loader.mjs --test tests/*.test.ts"
