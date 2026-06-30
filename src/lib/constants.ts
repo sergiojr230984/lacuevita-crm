@@ -5,6 +5,11 @@ export const STORE_WHATSAPP_NUMBERS: Record<StoreId, string> = {
   sw: "+13058019649"
 };
 
+export const STORE_WHATSAPP_DESTINATION_NUMBERS: Record<StoreId, string[]> = {
+  hialeah: [STORE_WHATSAPP_NUMBERS.hialeah, "+13058039820"],
+  sw: [STORE_WHATSAPP_NUMBERS.sw]
+};
+
 export const STORES: Store[] = [
   {
     id: "hialeah",
@@ -40,4 +45,3 @@ export const STATUS_ACCENT: Record<LeadStatus, string> = {
   "Closed Won": "border-l-emerald-600",
   Lost: "border-l-zinc-400"
 };
-
