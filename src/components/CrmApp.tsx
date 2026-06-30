@@ -4,8 +4,10 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  CalendarPlus,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   Lock,
   LogOut,
   MessageCircle,
@@ -18,7 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STORE_WHATSAPP_NUMBERS } from "@/lib/constants";
 import { formatPhone } from "@/lib/phone";
-import { LEAD_STATUSES, type DashboardMetrics, type LeadStatus, type LeadWithFlags, type User } from "@/lib/types";
+import { LEAD_STATUSES, type Appointment, type DashboardMetrics, type LeadStatus, type LeadWithFlags, type User } from "@/lib/types";
 
 type ApiEnvelope<T> = {
   ok: boolean;
@@ -99,6 +101,18 @@ function dateShort(value: string | null) {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function datetimeLocalValue(date: Date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function defaultAppointmentStart() {
+  const next = new Date();
+  next.setDate(next.getDate() + 1);
+  next.setHours(10, 0, 0, 0);
+  return datetimeLocalValue(next);
 }
 
 function MetricTile({
@@ -344,11 +358,53 @@ function LeadPanel({
   const [nextFollowUpDate, setNextFollowUpDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [appointmentTitle, setAppointmentTitle] = useState("Furniture consultation");
+  const [appointmentStart, setAppointmentStart] = useState(defaultAppointmentStart());
+  const [appointmentDuration, setAppointmentDuration] = useState("60");
+  const [appointmentNotes, setAppointmentNotes] = useState("");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  const [calendarSaving, setCalendarSaving] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarSuccessLink, setCalendarSuccessLink] = useState<string | null>(null);
 
   useEffect(() => {
     setMessage("");
     setNextFollowUpDate("");
     setError(null);
+    setAppointmentTitle("Furniture consultation");
+    setAppointmentStart(defaultAppointmentStart());
+    setAppointmentDuration("60");
+    setAppointmentNotes("");
+    setAppointments([]);
+    setCalendarError(null);
+    setCalendarSuccessLink(null);
+    if (!lead?.id) {
+      return;
+    }
+
+    let cancelled = false;
+    setAppointmentsLoading(true);
+    void apiFetch<{ appointments: Appointment[] }>(`/api/appointments?leadId=${encodeURIComponent(lead.id)}`)
+      .then((payload) => {
+        if (!cancelled) {
+          setAppointments(payload.appointments);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAppointments([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAppointmentsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [lead?.id]);
 
   if (!lead) {
@@ -376,6 +432,38 @@ function LeadPanel({
       setError(err instanceof Error ? err.message : "Unable to log message");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitAppointment() {
+    if (!lead || !appointmentStart) {
+      setCalendarError("Choose an appointment date and time");
+      return;
+    }
+
+    setCalendarSaving(true);
+    setCalendarError(null);
+    setCalendarSuccessLink(null);
+
+    try {
+      const payload = await apiFetch<{ appointment: Appointment; lead: LeadWithFlags }>("/api/appointments", {
+        method: "POST",
+        body: JSON.stringify({
+          lead_id: lead.id,
+          title: appointmentTitle.trim() || "Customer appointment",
+          description: appointmentNotes.trim() || null,
+          scheduled_start: new Date(appointmentStart).toISOString(),
+          duration_minutes: Number(appointmentDuration)
+        })
+      });
+      setAppointments((current) => [payload.appointment, ...current]);
+      setAppointmentNotes("");
+      setCalendarSuccessLink(payload.appointment.google_event_link);
+      await onLogged();
+    } catch (err) {
+      setCalendarError(err instanceof Error ? err.message : "Unable to schedule appointment");
+    } finally {
+      setCalendarSaving(false);
     }
   }
 
@@ -447,6 +535,100 @@ function LeadPanel({
               <Send size={16} />
               {saving ? "Saving" : "Log Contact"}
             </button>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <CalendarPlus size={17} className="text-orange-600" />
+              Google Calendar
+            </div>
+            <label className="mt-3 block text-xs font-medium text-stone-500" htmlFor="appointment-title">
+              Appointment title
+            </label>
+            <input
+              id="appointment-title"
+              value={appointmentTitle}
+              onChange={(event) => setAppointmentTitle(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm text-ink"
+            />
+            <div className="mt-3 grid grid-cols-[1fr_104px] gap-2">
+              <div>
+                <label className="block text-xs font-medium text-stone-500" htmlFor="appointment-start">
+                  Date and time
+                </label>
+                <input
+                  id="appointment-start"
+                  value={appointmentStart}
+                  onChange={(event) => setAppointmentStart(event.target.value)}
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm text-ink"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-500" htmlFor="appointment-duration">
+                  Minutes
+                </label>
+                <select
+                  id="appointment-duration"
+                  value={appointmentDuration}
+                  onChange={(event) => setAppointmentDuration(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm text-ink"
+                >
+                  <option value="30">30</option>
+                  <option value="60">60</option>
+                  <option value="90">90</option>
+                  <option value="120">120</option>
+                </select>
+              </div>
+            </div>
+            <label className="mt-3 block text-xs font-medium text-stone-500" htmlFor="appointment-notes">
+              Notes
+            </label>
+            <textarea
+              id="appointment-notes"
+              value={appointmentNotes}
+              onChange={(event) => setAppointmentNotes(event.target.value)}
+              className="mt-1 min-h-20 w-full resize-none rounded-lg border border-orange-200 bg-white p-3 text-sm text-ink"
+              placeholder="Delivery details, items, or showroom visit notes"
+            />
+            {calendarError && <div className="mt-2 text-sm text-rose-700">{calendarError}</div>}
+            {calendarSuccessLink && (
+              <a
+                href={calendarSuccessLink}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-700"
+              >
+                Appointment saved
+                <ExternalLink size={14} />
+              </a>
+            )}
+            <button
+              onClick={submitAppointment}
+              disabled={calendarSaving || !appointmentStart}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-stone-300"
+            >
+              <CalendarPlus size={16} />
+              {calendarSaving ? "Scheduling" : "Schedule Appointment"}
+            </button>
+
+            <div className="mt-4 border-t border-orange-200 pt-3">
+              <div className="text-xs font-semibold uppercase tracking-normal text-stone-500">Recent appointments</div>
+              {appointmentsLoading ? (
+                <div className="mt-2 h-10 animate-pulse rounded-lg bg-white/70" />
+              ) : appointments.length ? (
+                <div className="mt-2 space-y-2">
+                  {appointments.slice(0, 3).map((appointment) => (
+                    <div key={appointment.id} className="rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-orange-100">
+                      <div className="font-semibold text-ink">{appointment.title}</div>
+                      <div className="mt-1 text-stone-500">{dateShort(appointment.scheduled_start)}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 text-sm text-stone-500">None yet</div>
+              )}
+            </div>
           </div>
         </div>
       </aside>
@@ -613,6 +795,7 @@ export function CrmApp() {
       const dashboard = await apiFetch<DashboardResponse>(buildDashboardUrl(currentUser));
       setMetrics(dashboard.metrics);
       setLeads(dashboard.leads);
+      setSelectedLead((current) => dashboard.leads.find((lead) => lead.id === current?.id) || current);
       setError(null);
     } catch (err) {
       if (err instanceof Error && err.message === "Not logged in") {
