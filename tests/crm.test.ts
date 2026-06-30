@@ -96,6 +96,7 @@ class FakeRepo {
 
 test("routes WhatsApp destination numbers to fixed stores", () => {
   assert.equal(routeStoreFromToNumber("786-748-9064"), "hialeah");
+  assert.equal(routeStoreFromToNumber("305-803-9820"), "hialeah");
   assert.equal(routeStoreFromToNumber("+1 (305) 801-9649"), "sw");
   assert.throws(() => routeStoreFromToNumber("555-000-0000"), /Unknown WhatsApp destination/);
 });
@@ -205,4 +206,3 @@ test("lead patches ignore store_id and accept pipeline status changes", () => {
   assert.equal(update.notes, "Customer wants delivery this week");
   assert.equal("store_id" in update, false);
 });
-
