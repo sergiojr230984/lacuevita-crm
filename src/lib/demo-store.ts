@@ -2,6 +2,7 @@ import { ACTIVE_STATUSES, STORES } from "./constants";
 import { normalizePhone } from "./phone";
 import type {
   Activity,
+  Appointment,
   Lead,
   LeadSource,
   LeadStatus,
@@ -16,6 +17,7 @@ type DemoState = {
   leads: Lead[];
   messages: Message[];
   activities: Activity[];
+  appointments: Appointment[];
 };
 
 type DemoUser = User & {
@@ -170,7 +172,8 @@ function createInitialState(): DemoState {
         created_at: iso(-5)
       }
     ],
-    activities: []
+    activities: [],
+    appointments: []
   };
 }
 
@@ -371,4 +374,46 @@ export async function demoCreateActivity(input: {
   };
   state().activities.push(activity);
   return activity;
+}
+
+export async function demoCreateAppointment(input: {
+  lead_id: string;
+  user_id?: string | null;
+  store_id: StoreId;
+  title: string;
+  description?: string | null;
+  scheduled_start: string;
+  scheduled_end: string;
+  google_event_id?: string | null;
+  google_event_link?: string | null;
+}) {
+  const appointment: Appointment = {
+    id: `appointment-demo-${crypto.randomUUID()}`,
+    lead_id: input.lead_id,
+    user_id: input.user_id || null,
+    store_id: input.store_id,
+    title: input.title,
+    description: input.description || null,
+    scheduled_start: input.scheduled_start,
+    scheduled_end: input.scheduled_end,
+    google_event_id: input.google_event_id || null,
+    google_event_link: input.google_event_link || null,
+    created_at: new Date().toISOString()
+  };
+  state().appointments.push(appointment);
+  return appointment;
+}
+
+export async function demoListAppointments(filters: {
+  leadId?: string;
+  storeId?: StoreId;
+  userId?: string;
+  limit?: number;
+} = {}) {
+  return state()
+    .appointments.filter((item) => !filters.leadId || item.lead_id === filters.leadId)
+    .filter((item) => !filters.storeId || item.store_id === filters.storeId)
+    .filter((item) => !filters.userId || item.user_id === filters.userId)
+    .sort((left, right) => new Date(right.scheduled_start).getTime() - new Date(left.scheduled_start).getTime())
+    .slice(0, filters.limit || 100);
 }
