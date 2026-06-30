@@ -1,10 +1,12 @@
 import type { CrmRepository } from "./crm-service";
 import {
+  demoCreateAppointment,
   demoCreateActivity,
   demoCreateLead,
   demoCreateMessage,
   demoFindLeadByWhatsapp,
   demoGetLeadById,
+  demoListAppointments,
   demoListLeads,
   demoListMessages,
   demoListStores,
@@ -15,11 +17,13 @@ import {
   shouldUseDemoStore
 } from "./demo-store";
 import {
+  createAppointment,
   createActivity,
   createLead,
   createMessage,
   findLeadByWhatsapp,
   getLeadById,
+  listAppointments,
   listLeads,
   listMessages,
   listStores,
@@ -41,7 +45,9 @@ const databaseRepository = {
   updateLead,
   createMessage,
   listMessages,
-  createActivity
+  createActivity,
+  createAppointment,
+  listAppointments
 };
 
 const demoRepository = {
@@ -56,7 +62,9 @@ const demoRepository = {
   updateLead: demoUpdateLead,
   createMessage: demoCreateMessage,
   listMessages: demoListMessages,
-  createActivity: demoCreateActivity
+  createActivity: demoCreateActivity,
+  createAppointment: demoCreateAppointment,
+  listAppointments: demoListAppointments
 };
 
 export function getRepository() {
