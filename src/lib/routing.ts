@@ -1,12 +1,11 @@
-import { STORE_WHATSAPP_NUMBERS } from "./constants";
+import { STORE_WHATSAPP_DESTINATION_NUMBERS } from "./constants";
 import { normalizePhone } from "./phone";
 import type { StoreId } from "./types";
 
 const numberToStore = new Map<string, StoreId>(
-  Object.entries(STORE_WHATSAPP_NUMBERS).map(([storeId, phone]) => [
-    normalizePhone(phone),
-    storeId as StoreId
-  ])
+  Object.entries(STORE_WHATSAPP_DESTINATION_NUMBERS).flatMap(([storeId, phones]) =>
+    phones.map((phone) => [normalizePhone(phone), storeId as StoreId])
+  )
 );
 
 export function routeStoreFromToNumber(toNumber: string): StoreId {
@@ -23,4 +22,3 @@ export function routeStoreFromToNumber(toNumber: string): StoreId {
 export function isStoreWhatsappNumber(phone: string): boolean {
   return numberToStore.has(normalizePhone(phone));
 }
-
