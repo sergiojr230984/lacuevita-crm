@@ -3,6 +3,7 @@ import { normalizePhone } from "./phone";
 import { query } from "./db";
 import type {
   Activity,
+  Appointment,
   Lead,
   LeadSource,
   LeadStatus,
@@ -62,6 +63,25 @@ export type CreateActivityInput = {
   to_status?: LeadStatus | null;
   notes?: string | null;
   metadata?: Record<string, unknown>;
+};
+
+export type AppointmentFilters = {
+  leadId?: string;
+  storeId?: StoreId;
+  userId?: string;
+  limit?: number;
+};
+
+export type CreateAppointmentInput = {
+  lead_id: string;
+  user_id?: string | null;
+  store_id: StoreId;
+  title: string;
+  description?: string | null;
+  scheduled_start: string;
+  scheduled_end: string;
+  google_event_id?: string | null;
+  google_event_link?: string | null;
 };
 
 export async function listStores(): Promise<Store[]> {
@@ -326,6 +346,75 @@ export async function listActivities(leadId: string): Promise<Activity[]> {
       ORDER BY created_at DESC
     `,
     [leadId]
+  );
+
+  return result.rows;
+}
+
+export async function createAppointment(input: CreateAppointmentInput): Promise<Appointment> {
+  const result = await query<Appointment>(
+    `
+      INSERT INTO appointments (
+        lead_id,
+        user_id,
+        store_id,
+        title,
+        description,
+        scheduled_start,
+        scheduled_end,
+        google_event_id,
+        google_event_link
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `,
+    [
+      input.lead_id,
+      input.user_id || null,
+      input.store_id,
+      input.title,
+      input.description || null,
+      input.scheduled_start,
+      input.scheduled_end,
+      input.google_event_id || null,
+      input.google_event_link || null
+    ]
+  );
+
+  return result.rows[0];
+}
+
+export async function listAppointments(filters: AppointmentFilters = {}): Promise<Appointment[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.leadId) {
+    params.push(filters.leadId);
+    where.push(`lead_id = $${params.length}`);
+  }
+
+  if (filters.storeId) {
+    params.push(filters.storeId);
+    where.push(`store_id = $${params.length}`);
+  }
+
+  if (filters.userId) {
+    params.push(filters.userId);
+    where.push(`user_id = $${params.length}`);
+  }
+
+  const limit = Math.min(Math.max(filters.limit || 100, 1), 500);
+  params.push(limit);
+
+  const result = await query<Appointment>(
+    `
+      SELECT *
+      FROM appointments
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY scheduled_start DESC
+      LIMIT $${params.length}
+    `,
+    params
   );
 
   return result.rows;
