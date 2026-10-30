@@ -1,4 +1,5 @@
-import { LEAD_STATUSES, type LeadSource, type LeadStatus } from "./types";
+import { LOST_REASONS } from "./constants";
+import { LEAD_STATUSES, type Lead, type LeadSource, type LeadStatus } from "./types";
 
 export type SanitizedLeadUpdate = {
   name?: string | null;
@@ -7,6 +8,8 @@ export type SanitizedLeadUpdate = {
   status?: LeadStatus;
   budget?: number | null;
   notes?: string | null;
+  lost_reason?: string | null;
+  estimated_sale_amount?: number | null;
   last_contact_date?: string | null;
   next_follow_up_date?: string | null;
   follow_up_count?: number;
@@ -20,6 +23,8 @@ const editableFields = new Set([
   "status",
   "budget",
   "notes",
+  "lost_reason",
+  "estimated_sale_amount",
   "last_contact_date",
   "next_follow_up_date",
   "follow_up_count",
@@ -70,6 +75,27 @@ export function sanitizeLeadUpdate(body: Record<string, unknown>) {
       continue;
     }
 
+    if (key === "estimated_sale_amount") {
+      const amount = value === "" || value === null ? null : Number(value);
+      if (amount !== null && (Number.isNaN(amount) || amount < 0)) {
+        errors.push("Invalid estimated_sale_amount");
+      } else {
+        update.estimated_sale_amount = amount;
+      }
+      continue;
+    }
+
+    if (key === "lost_reason") {
+      if (value === "" || value === null) {
+        update.lost_reason = null;
+      } else if (typeof value === "string" && (LOST_REASONS as readonly string[]).includes(value)) {
+        update.lost_reason = value;
+      } else {
+        errors.push("Invalid lost_reason");
+      }
+      continue;
+    }
+
     if (key === "follow_up_count") {
       const count = Number(value);
       if (!Number.isInteger(count) || count < 0) {
@@ -93,5 +119,19 @@ export function sanitizeLeadUpdate(body: Record<string, unknown>) {
     errors,
     hasChanges: Object.keys(update).length > 0
   };
+}
+
+export function requiresLostReason(
+  existing: Pick<Lead, "status" | "lost_reason">,
+  update: SanitizedLeadUpdate
+): string | null {
+  const nextStatus = update.status ?? existing.status;
+  const nextReason = update.lost_reason !== undefined ? update.lost_reason : existing.lost_reason;
+
+  if (nextStatus === "Lost" && !nextReason) {
+    return "lost_reason is required when marking a lead as Lost";
+  }
+
+  return null;
 }
 

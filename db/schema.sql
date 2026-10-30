@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS leads (
   CONSTRAINT leads_store_whatsapp_unique UNIQUE (store_id, whatsapp_number)
 );
 
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS lost_reason text;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS estimated_sale_amount numeric(12, 2);
+
 CREATE TABLE IF NOT EXISTS messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   lead_id uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,

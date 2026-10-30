@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api-response";
-import { sanitizeLeadUpdate } from "@/lib/lead-updates";
+import { requiresLostReason, sanitizeLeadUpdate } from "@/lib/lead-updates";
 import { getRepository } from "@/lib/repository-provider";
 import { handleRouteError } from "@/lib/route-helpers";
 import { getCurrentUser } from "@/lib/session";
@@ -60,6 +60,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     if (!hasChanges) {
       return jsonError("No editable lead fields provided", 422);
+    }
+
+    const lostReasonError = requiresLostReason(existing, update);
+    if (lostReasonError) {
+      return jsonError(lostReasonError, 422);
     }
 
     const lead = await repo.updateLead(id, update);

@@ -38,6 +38,8 @@ export type UpdateLeadInput = {
   status?: LeadStatus;
   budget?: number | string | null;
   notes?: string | null;
+  lost_reason?: string | null;
+  estimated_sale_amount?: number | string | null;
   last_contact_date?: string | null;
   next_follow_up_date?: string | null;
   follow_up_count?: number;

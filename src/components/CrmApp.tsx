@@ -1,13 +1,17 @@
 "use client";
 
 import {
+  AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   BarChart3,
   Bell,
+  CalendarCheck2,
   CalendarPlus,
   CheckCircle2,
   Clock3,
   ExternalLink,
+  FileText,
   Lock,
   LogOut,
   MessageCircle,
@@ -15,10 +19,13 @@ import {
   RefreshCw,
   Send,
   Store,
-  UserRound
+  Trophy,
+  UserPlus,
+  UserRound,
+  XCircle
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { STORE_WHATSAPP_NUMBERS } from "@/lib/constants";
+import { LEAD_STATUS_LABELS_ES, LOST_REASONS, STORE_WHATSAPP_NUMBERS } from "@/lib/constants";
 import { formatPhone } from "@/lib/phone";
 import { LEAD_STATUSES, type Appointment, type DashboardMetrics, type LeadStatus, type LeadWithFlags, type User } from "@/lib/types";
 
@@ -348,12 +355,15 @@ function KanbanBoard({
 function LeadPanel({
   lead,
   onClose,
-  onLogged
+  onLogged,
+  locale = "en"
 }: {
   lead: LeadWithFlags | null;
   onClose: () => void;
   onLogged: () => Promise<void>;
+  locale?: "en" | "es";
 }) {
+  const es = locale === "es";
   const [message, setMessage] = useState("");
   const [nextFollowUpDate, setNextFollowUpDate] = useState("");
   const [saving, setSaving] = useState(false);
@@ -367,6 +377,12 @@ function LeadPanel({
   const [calendarSaving, setCalendarSaving] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [calendarSuccessLink, setCalendarSuccessLink] = useState<string | null>(null);
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [quickError, setQuickError] = useState<string | null>(null);
+  const [showQuoteForm, setShowQuoteForm] = useState(false);
+  const [quoteAmount, setQuoteAmount] = useState("");
+  const [showLostForm, setShowLostForm] = useState(false);
+  const [lostReason, setLostReason] = useState("");
 
   useEffect(() => {
     setMessage("");
@@ -379,6 +395,12 @@ function LeadPanel({
     setAppointments([]);
     setCalendarError(null);
     setCalendarSuccessLink(null);
+    setQuickSaving(false);
+    setQuickError(null);
+    setShowQuoteForm(false);
+    setQuoteAmount("");
+    setShowLostForm(false);
+    setLostReason("");
     if (!lead?.id) {
       return;
     }
@@ -435,6 +457,28 @@ function LeadPanel({
     }
   }
 
+  async function patchLead(payload: Record<string, unknown>) {
+    if (!lead) return;
+    setQuickSaving(true);
+    setQuickError(null);
+
+    try {
+      await apiFetch<{ lead: LeadWithFlags }>(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      setShowQuoteForm(false);
+      setQuoteAmount("");
+      setShowLostForm(false);
+      setLostReason("");
+      await onLogged();
+    } catch (err) {
+      setQuickError(err instanceof Error ? err.message : "Unable to update lead");
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
   async function submitAppointment() {
     if (!lead || !appointmentStart) {
       setCalendarError("Choose an appointment date and time");
@@ -483,41 +527,168 @@ function LeadPanel({
               </div>
             </div>
             <button className="rounded-md border border-stone-200 px-3 py-1.5 text-sm font-medium text-stone-600" onClick={onClose}>
-              Close
+              {es ? "Cerrar" : "Close"}
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border border-stone-200 p-3">
+            <div className="text-xs font-semibold uppercase tracking-normal text-stone-500">
+              {es ? "Acciones rápidas" : "Quick actions"}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <a
+                href={`https://wa.me/${lead.whatsapp_number.replace(/\D/g, "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <MessageCircle size={14} />
+                {es ? "Abrir WhatsApp" : "Open WhatsApp"}
+              </a>
+              <button
+                type="button"
+                onClick={() => document.getElementById("contact-log-message")?.focus()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-fern px-3 py-2 text-xs font-semibold text-white"
+              >
+                <Send size={14} />
+                {es ? "Registrar Contacto" : "Log Contact"}
+              </button>
+              <button
+                type="button"
+                onClick={() => document.getElementById("next-follow-up")?.focus()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-stone-700 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <Clock3 size={14} />
+                {es ? "Programar Seguimiento" : "Schedule Follow-up"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuoteForm((value) => !value);
+                  setShowLostForm(false);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <FileText size={14} />
+                {es ? "Crear Cotización" : "Create Quote"}
+              </button>
+              <button
+                type="button"
+                disabled={quickSaving}
+                onClick={() => void patchLead({ status: "Closed Won" })}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                <CheckCircle2 size={14} />
+                {es ? "Venta Cerrada" : "Mark Sale Closed"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLostForm((value) => !value);
+                  setShowQuoteForm(false);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <XCircle size={14} />
+                {es ? "Venta Perdida" : "Mark Sale Lost"}
+              </button>
+            </div>
+
+            {showQuoteForm && (
+              <div className="mt-3 rounded-lg bg-amber-50 p-3 ring-1 ring-amber-100">
+                <label className="block text-xs font-medium text-stone-600">
+                  {es
+                    ? "Estimación interna (no es una cotización real)"
+                    : "Internal estimate (not a real quote)"}
+                </label>
+                <input
+                  value={quoteAmount}
+                  onChange={(event) => setQuoteAmount(event.target.value)}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-ink"
+                  placeholder="0.00"
+                />
+                <button
+                  type="button"
+                  disabled={quickSaving}
+                  onClick={() =>
+                    void patchLead({
+                      status: "Quote Sent",
+                      estimated_sale_amount: quoteAmount === "" ? null : Number(quoteAmount)
+                    })
+                  }
+                  className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                  {es ? "Guardar Estimación" : "Save Estimate"}
+                </button>
+              </div>
+            )}
+
+            {showLostForm && (
+              <div className="mt-3 rounded-lg bg-rose-50 p-3 ring-1 ring-rose-100">
+                <label className="block text-xs font-medium text-stone-600">
+                  {es ? "Motivo de la pérdida (requerido)" : "Lost reason (required)"}
+                </label>
+                <select
+                  value={lostReason}
+                  onChange={(event) => setLostReason(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-ink"
+                >
+                  <option value="">{es ? "Selecciona un motivo" : "Select a reason"}</option>
+                  {LOST_REASONS.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={quickSaving || !lostReason}
+                  onClick={() => void patchLead({ status: "Lost", lost_reason: lostReason })}
+                  className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {es ? "Confirmar Venta Perdida" : "Confirm Sale Lost"}
+                </button>
+              </div>
+            )}
+
+            {quickError && <div className="mt-2 text-sm text-rose-700">{quickError}</div>}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-stone-50 p-3">
-              <div className="text-xs text-stone-500">Status</div>
-              <div className="mt-1 font-semibold text-ink">{lead.status}</div>
+              <div className="text-xs text-stone-500">{es ? "Estado" : "Status"}</div>
+              <div className="mt-1 font-semibold text-ink">{es ? LEAD_STATUS_LABELS_ES[lead.status] : lead.status}</div>
             </div>
             <div className="rounded-lg bg-stone-50 p-3">
-              <div className="text-xs text-stone-500">Store</div>
+              <div className="text-xs text-stone-500">{es ? "Tienda" : "Store"}</div>
               <div className="mt-1 font-semibold text-ink">{storeLabel(lead.store_id)}</div>
             </div>
             <div className="rounded-lg bg-stone-50 p-3">
-              <div className="text-xs text-stone-500">Follow-Ups</div>
+              <div className="text-xs text-stone-500">{es ? "Seguimientos" : "Follow-Ups"}</div>
               <div className="mt-1 font-semibold text-ink">{lead.follow_up_count}</div>
             </div>
             <div className="rounded-lg bg-stone-50 p-3">
-              <div className="text-xs text-stone-500">Next</div>
+              <div className="text-xs text-stone-500">{es ? "Próximo" : "Next"}</div>
               <div className="mt-1 font-semibold text-ink">{dateShort(lead.next_follow_up_date)}</div>
             </div>
           </div>
 
           <div className="mt-4 rounded-lg border border-stone-200 p-3">
-            <div className="text-sm font-semibold text-ink">Contact Log</div>
+            <div className="text-sm font-semibold text-ink">{es ? "Registro de Contacto" : "Contact Log"}</div>
             <textarea
+              id="contact-log-message"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               className="mt-3 min-h-28 w-full resize-none rounded-lg border border-stone-200 bg-white p-3 text-sm text-ink"
-              placeholder="Message sent to customer"
+              placeholder={es ? "Mensaje enviado al cliente" : "Message sent to customer"}
             />
             <label className="mt-3 block text-xs font-medium text-stone-500" htmlFor="next-follow-up">
-              Next follow-up
+              {es ? "Próximo seguimiento" : "Next follow-up"}
             </label>
             <input
               id="next-follow-up"
@@ -526,6 +697,17 @@ function LeadPanel({
               type="datetime-local"
               className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm text-ink"
             />
+            <button
+              type="button"
+              disabled={quickSaving || !nextFollowUpDate}
+              onClick={() =>
+                void patchLead({ next_follow_up_date: nextFollowUpDate ? new Date(nextFollowUpDate).toISOString() : null })
+              }
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Clock3 size={14} />
+              {es ? "Guardar Seguimiento" : "Save Follow-up"}
+            </button>
             {error && <div className="mt-2 text-sm text-rose-700">{error}</div>}
             <button
               onClick={submitOutbound}
@@ -533,17 +715,17 @@ function LeadPanel({
               className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fern px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-stone-300"
             >
               <Send size={16} />
-              {saving ? "Saving" : "Log Contact"}
+              {saving ? (es ? "Guardando" : "Saving") : es ? "Registrar Contacto" : "Log Contact"}
             </button>
           </div>
 
           <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <CalendarPlus size={17} className="text-orange-600" />
-              Google Calendar
+              {es ? "Agendar Cita" : "Google Calendar"}
             </div>
             <label className="mt-3 block text-xs font-medium text-stone-500" htmlFor="appointment-title">
-              Appointment title
+              {es ? "Título de la cita" : "Appointment title"}
             </label>
             <input
               id="appointment-title"
@@ -554,7 +736,7 @@ function LeadPanel({
             <div className="mt-3 grid grid-cols-[1fr_104px] gap-2">
               <div>
                 <label className="block text-xs font-medium text-stone-500" htmlFor="appointment-start">
-                  Date and time
+                  {es ? "Fecha y hora" : "Date and time"}
                 </label>
                 <input
                   id="appointment-start"
@@ -566,7 +748,7 @@ function LeadPanel({
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-500" htmlFor="appointment-duration">
-                  Minutes
+                  {es ? "Minutos" : "Minutes"}
                 </label>
                 <select
                   id="appointment-duration"
@@ -582,14 +764,18 @@ function LeadPanel({
               </div>
             </div>
             <label className="mt-3 block text-xs font-medium text-stone-500" htmlFor="appointment-notes">
-              Notes
+              {es ? "Notas" : "Notes"}
             </label>
             <textarea
               id="appointment-notes"
               value={appointmentNotes}
               onChange={(event) => setAppointmentNotes(event.target.value)}
               className="mt-1 min-h-20 w-full resize-none rounded-lg border border-orange-200 bg-white p-3 text-sm text-ink"
-              placeholder="Delivery details, items, or showroom visit notes"
+              placeholder={
+                es
+                  ? "Detalles de entrega, artículos o visita a la sala de exhibición"
+                  : "Delivery details, items, or showroom visit notes"
+              }
             />
             {calendarError && <div className="mt-2 text-sm text-rose-700">{calendarError}</div>}
             {calendarSuccessLink && (
@@ -599,7 +785,7 @@ function LeadPanel({
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-700"
               >
-                Appointment saved
+                {es ? "Cita guardada" : "Appointment saved"}
                 <ExternalLink size={14} />
               </a>
             )}
@@ -609,11 +795,13 @@ function LeadPanel({
               className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-stone-300"
             >
               <CalendarPlus size={16} />
-              {calendarSaving ? "Scheduling" : "Schedule Appointment"}
+              {calendarSaving ? (es ? "Agendando" : "Scheduling") : es ? "Agendar Cita" : "Schedule Appointment"}
             </button>
 
             <div className="mt-4 border-t border-orange-200 pt-3">
-              <div className="text-xs font-semibold uppercase tracking-normal text-stone-500">Recent appointments</div>
+              <div className="text-xs font-semibold uppercase tracking-normal text-stone-500">
+                {es ? "Citas recientes" : "Recent appointments"}
+              </div>
               {appointmentsLoading ? (
                 <div className="mt-2 h-10 animate-pulse rounded-lg bg-white/70" />
               ) : appointments.length ? (
@@ -626,13 +814,184 @@ function LeadPanel({
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 text-sm text-stone-500">None yet</div>
+                <div className="mt-2 text-sm text-stone-500">{es ? "Ninguna aún" : "None yet"}</div>
               )}
             </div>
           </div>
         </div>
       </aside>
     </div>
+  );
+}
+
+function isSameLocalDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+type SalespersonCategory = "new" | "today" | "overdue" | "quotes" | "sales";
+
+function SalespersonHome({
+  leads,
+  onOpenLead
+}: {
+  leads: LeadWithFlags[];
+  onOpenLead: (lead: LeadWithFlags) => void;
+}) {
+  const [activeCategory, setActiveCategory] = useState<SalespersonCategory | null>(null);
+
+  const groups = useMemo(() => {
+    const now = new Date();
+    return {
+      new: leads.filter((lead) => lead.status === "New"),
+      today: leads.filter(
+        (lead) => !lead.isOverdue && lead.next_follow_up_date && isSameLocalDay(new Date(lead.next_follow_up_date), now)
+      ),
+      overdue: leads.filter((lead) => lead.isOverdue),
+      quotes: leads.filter((lead) => lead.status === "Quote Sent"),
+      sales: leads.filter((lead) => lead.status === "Closed Won")
+    } satisfies Record<SalespersonCategory, LeadWithFlags[]>;
+  }, [leads]);
+
+  const tiles: Array<{ key: SalespersonCategory; label: string; icon: React.ReactNode }> = [
+    { key: "new", label: "Clientes Nuevos", icon: <UserPlus size={20} /> },
+    { key: "today", label: "Seguimientos de Hoy", icon: <CalendarCheck2 size={20} /> },
+    { key: "overdue", label: "Seguimientos Atrasados", icon: <AlertCircle size={20} /> },
+    { key: "quotes", label: "Mis Cotizaciones", icon: <FileText size={20} /> },
+    { key: "sales", label: "Mis Ventas", icon: <Trophy size={20} /> }
+  ];
+
+  if (activeCategory) {
+    const activeTile = tiles.find((tile) => tile.key === activeCategory);
+    const activeLeads = groups[activeCategory];
+
+    return (
+      <section className="space-y-3">
+        <button
+          onClick={() => setActiveCategory(null)}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-stone-600"
+        >
+          <ArrowLeft size={16} />
+          {"Atrás"}
+        </button>
+        <h2 className="text-lg font-semibold text-ink">{activeTile?.label}</h2>
+        {activeLeads.length === 0 ? (
+          <div className="rounded-lg bg-white p-6 text-center text-sm text-stone-500 shadow-soft ring-1 ring-stone-200">
+            {"No hay clientes en esta categoría."}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {activeLeads.map((lead) => (
+              <button
+                key={lead.id}
+                onClick={() => onOpenLead(lead)}
+                className="w-full rounded-lg border border-stone-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-ink">{lead.name || "Cliente sin nombre"}</div>
+                    <div className="mt-1 flex items-center gap-1 text-xs text-stone-500">
+                      <Phone size={13} />
+                      <span>{formatPhone(lead.whatsapp_number)}</span>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-[11px] font-medium text-stone-600">
+                    {LEAD_STATUS_LABELS_ES[lead.status]}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {tiles.map((tile) => (
+        <button
+          key={tile.key}
+          onClick={() => setActiveCategory(tile.key)}
+          className="rounded-lg bg-white p-4 text-left shadow-soft ring-1 ring-stone-200 transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="grid size-9 place-items-center rounded-full bg-stone-100 text-stone-600">{tile.icon}</span>
+            <span className="text-2xl font-semibold text-ink">{groups[tile.key].length}</span>
+          </div>
+          <div className="mt-3 text-sm font-semibold text-ink">{tile.label}</div>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+function SupervisorPanel({
+  leads,
+  salespeople,
+  onReassign
+}: {
+  leads: LeadWithFlags[];
+  salespeople: User[];
+  onReassign: (leadId: string, userId: string) => Promise<void>;
+}) {
+  const alertLeads = leads.filter((lead) => lead.isOverdue || lead.isStale || lead.isHighFollowUpNoConversion);
+
+  return (
+    <section className="rounded-lg bg-white p-4 shadow-soft ring-1 ring-stone-200">
+      <h2 className="text-sm font-semibold uppercase tracking-normal text-stone-500">Supervisor Alerts</h2>
+      {alertLeads.length === 0 ? (
+        <div className="mt-3 text-sm text-stone-500">No active alerts.</div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {alertLeads.map((lead) => (
+            <div
+              key={lead.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 p-3"
+            >
+              <div>
+                <div className="text-sm font-semibold text-ink">{lead.name || "Unknown Customer"}</div>
+                <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
+                  {lead.isOverdue && (
+                    <span className="rounded-full bg-rose-50 px-2 py-0.5 font-medium text-rose-700">Overdue</span>
+                  )}
+                  {lead.isStale && (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">48h no activity</span>
+                  )}
+                  {lead.isHighFollowUpNoConversion && (
+                    <span className="rounded-full bg-orange-50 px-2 py-0.5 font-medium text-orange-800">
+                      {lead.follow_up_count} follow-ups
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-xs text-stone-500">Assigned: {lead.assigned_user_name || "Unassigned"}</div>
+              </div>
+              <select
+                defaultValue={lead.assigned_user_id || ""}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    void onReassign(lead.id, event.target.value);
+                  }
+                }}
+                className="rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-medium text-stone-700"
+              >
+                <option value="" disabled>
+                  {"Reassign to…"}
+                </option>
+                {salespeople.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -774,6 +1133,7 @@ export function CrmApp() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [salespeople, setSalespeople] = useState<User[]>([]);
 
   const accountScope = useMemo(() => {
     if (!currentUser) return "";
@@ -830,6 +1190,32 @@ export function CrmApp() {
     }
   }, [authChecked, currentUser, refreshDashboard]);
 
+  useEffect(() => {
+    if (currentUser?.role !== "manager") {
+      setSalespeople([]);
+      return;
+    }
+
+    let cancelled = false;
+    void apiFetch<{ users: User[] }>("/api/users")
+      .then((payload) => {
+        if (!cancelled) {
+          setSalespeople(
+            payload.users.filter((user) => user.role === "salesperson" && user.store_id === currentUser.store_id)
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSalespeople([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
+
   async function logout() {
     try {
       await apiFetch<{ loggedOut: boolean }>("/api/auth/logout", { method: "POST" });
@@ -873,6 +1259,21 @@ export function CrmApp() {
     [leads, refreshDashboard]
   );
 
+  const reassignLead = useCallback(
+    async (leadId: string, userId: string) => {
+      try {
+        await apiFetch<{ lead: LeadWithFlags }>(`/api/leads/${leadId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ assigned_user_id: userId })
+        });
+        await refreshDashboard();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to reassign lead");
+      }
+    },
+    [refreshDashboard]
+  );
+
   if (!authChecked) {
     return (
       <main className="grid min-h-screen place-items-center px-4">
@@ -898,7 +1299,9 @@ export function CrmApp() {
               <MessageCircle size={18} />
               La Cuevita CRM
             </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal text-ink">WhatsApp Lead Desk</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-normal text-ink">
+              {currentUser.role === "salesperson" ? "Panel de Ventas" : "WhatsApp Lead Desk"}
+            </h1>
             <div className="mt-1 text-sm text-stone-500">{accountScope}</div>
           </div>
 
@@ -910,7 +1313,7 @@ export function CrmApp() {
             <button
               onClick={() => void refreshDashboard()}
               className="inline-flex size-10 items-center justify-center rounded-lg bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50"
-              title="Refresh"
+              title={currentUser.role === "salesperson" ? "Actualizar" : "Refresh"}
             >
               <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
             </button>
@@ -919,7 +1322,7 @@ export function CrmApp() {
               className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50"
             >
               <LogOut size={16} />
-              Logout
+              {currentUser.role === "salesperson" ? "Salir" : "Logout"}
             </button>
           </div>
         </div>
@@ -938,17 +1341,27 @@ export function CrmApp() {
               <div key={item} className="h-32 animate-pulse rounded-lg bg-white shadow-soft ring-1 ring-stone-200" />
             ))}
           </div>
+        ) : currentUser.role === "salesperson" ? (
+          <SalespersonHome leads={leads} onOpenLead={setSelectedLead} />
         ) : (
           <>
             <MetricsGrid metrics={metrics} />
             <StoreBreakdown metrics={metrics} />
             <StageSummary metrics={metrics} />
+            {currentUser.role === "manager" && (
+              <SupervisorPanel leads={leads} salespeople={salespeople} onReassign={reassignLead} />
+            )}
             <KanbanBoard leads={leads} onOpenLead={setSelectedLead} onMoveLead={moveLead} />
           </>
         )}
       </div>
 
-      <LeadPanel lead={selectedLead} onClose={() => setSelectedLead(null)} onLogged={refreshDashboard} />
+      <LeadPanel
+        lead={selectedLead}
+        onClose={() => setSelectedLead(null)}
+        onLogged={refreshDashboard}
+        locale={currentUser.role === "salesperson" ? "es" : "en"}
+      />
     </main>
   );
 }
