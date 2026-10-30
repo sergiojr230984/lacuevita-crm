@@ -45,3 +45,26 @@ export const STATUS_ACCENT: Record<LeadStatus, string> = {
   "Closed Won": "border-l-emerald-600",
   Lost: "border-l-zinc-400"
 };
+
+// Display-only Spanish labels for the salesperson-facing screens. The underlying
+// LeadStatus enum values stay in English so no stage migration is needed.
+export const LEAD_STATUS_LABELS_ES: Record<LeadStatus, string> = {
+  New: "Nuevo Cliente",
+  Contacted: "Contactado",
+  "Quote Sent": "Cotización Enviada",
+  "Follow-Up": "Seguimiento Pendiente",
+  Negotiation: "En Negociación",
+  "Closed Won": "Venta Cerrada",
+  Lost: "Venta Perdida"
+};
+
+export const LOST_REASONS = [
+  "Precio",
+  "Cliente no responde",
+  "Compró en otra tienda",
+  "Financiamiento rechazado",
+  "Producto no disponible",
+  "Otro"
+] as const;
+
+export type LostReason = (typeof LOST_REASONS)[number];

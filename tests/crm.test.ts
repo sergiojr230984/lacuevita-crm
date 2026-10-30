@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDashboardMetrics } from "../src/lib/dashboard.ts";
-import { buildOutboundContactUpdate } from "../src/lib/followups.ts";
-import { sanitizeLeadUpdate } from "../src/lib/lead-updates.ts";
-import { normalizePhone } from "../src/lib/phone.ts";
-import { routeStoreFromToNumber } from "../src/lib/routing.ts";
-import { processWhatsappWebhook } from "../src/lib/crm-service.ts";
-import type { Lead, Message, StoreId } from "../src/lib/types.ts";
+import { buildDashboardMetrics } from "../src/lib/dashboard";
+import { buildOutboundContactUpdate } from "../src/lib/followups";
+import { requiresLostReason, sanitizeLeadUpdate } from "../src/lib/lead-updates";
+import { normalizePhone } from "../src/lib/phone";
+import { routeStoreFromToNumber } from "../src/lib/routing";
+import { processWhatsappWebhook } from "../src/lib/crm-service";
+import type { Lead, Message, StoreId } from "../src/lib/types";
 
 function makeLead(partial: Partial<Lead> = {}): Lead {
   const now = new Date("2026-06-10T12:00:00.000Z").toISOString();
@@ -23,6 +23,8 @@ function makeLead(partial: Partial<Lead> = {}): Lead {
     status: "New",
     budget: null,
     notes: null,
+    lost_reason: null,
+    estimated_sale_amount: null,
     last_contact_date: null,
     next_follow_up_date: null,
     follow_up_count: 0,
@@ -77,12 +79,22 @@ class FakeRepo {
     return this.leads[index];
   }
 
-  async createMessage(input: Omit<Message, "id" | "created_at" | "provider"> & { provider?: string }) {
+  async createMessage(input: {
+    lead_id: string;
+    direction: Message["direction"];
+    provider?: string;
+    from_number: string;
+    to_number: string;
+    body: string;
+    external_message_id?: string | null;
+    raw_payload?: unknown;
+  }) {
     const message: Message = {
       id: `message-${this.messages.length + 1}`,
       provider: input.provider || "whatsapp",
       created_at: new Date("2026-06-10T12:00:00.000Z").toISOString(),
-      ...input
+      ...input,
+      external_message_id: input.external_message_id ?? null
     };
     this.messages.push(message);
     return message;
@@ -205,4 +217,40 @@ test("lead patches ignore store_id and accept pipeline status changes", () => {
   assert.equal(update.status, "Quote Sent");
   assert.equal(update.notes, "Customer wants delivery this week");
   assert.equal("store_id" in update, false);
+});
+
+test("lead patches accept a valid lost_reason and reject an invalid one", () => {
+  const valid = sanitizeLeadUpdate({ status: "Lost", lost_reason: "Precio" });
+  assert.deepEqual(valid.errors, []);
+  assert.equal(valid.update.lost_reason, "Precio");
+
+  const invalid = sanitizeLeadUpdate({ status: "Lost", lost_reason: "Not a real reason" });
+  assert.deepEqual(invalid.errors, ["Invalid lost_reason"]);
+});
+
+test("lead patches validate estimated_sale_amount as a non-negative number", () => {
+  const valid = sanitizeLeadUpdate({ estimated_sale_amount: "1200.50" });
+  assert.deepEqual(valid.errors, []);
+  assert.equal(valid.update.estimated_sale_amount, 1200.5);
+
+  const cleared = sanitizeLeadUpdate({ estimated_sale_amount: "" });
+  assert.deepEqual(cleared.errors, []);
+  assert.equal(cleared.update.estimated_sale_amount, null);
+
+  const invalid = sanitizeLeadUpdate({ estimated_sale_amount: "-50" });
+  assert.deepEqual(invalid.errors, ["Invalid estimated_sale_amount"]);
+});
+
+test("requiresLostReason only blocks a transition to Lost without a reason", () => {
+  const leadWithoutReason = makeLead({ status: "Follow-Up", lost_reason: null });
+
+  assert.equal(
+    requiresLostReason(leadWithoutReason, { status: "Lost" }),
+    "lost_reason is required when marking a lead as Lost"
+  );
+  assert.equal(requiresLostReason(leadWithoutReason, { status: "Lost", lost_reason: "Precio" }), null);
+  assert.equal(requiresLostReason(leadWithoutReason, { notes: "Called twice" }), null);
+
+  const leadAlreadyLostWithReason = makeLead({ status: "Lost", lost_reason: "Precio" });
+  assert.equal(requiresLostReason(leadAlreadyLostWithReason, { notes: "Follow-up call" }), null);
 });
