@@ -45,6 +45,7 @@ export type Lead = {
   notes: string | null;
   lost_reason: string | null;
   estimated_sale_amount: string | number | null;
+  first_touch_ad_id: string | null;
   last_contact_date: string | null;
   next_follow_up_date: string | null;
   follow_up_count: number;
@@ -63,6 +64,21 @@ export type Message = {
   body: string | null;
   external_message_id: string | null;
   raw_payload?: unknown;
+  referral_source_type: string | null;
+  referral_source_id: string | null;
+  referral_source_url: string | null;
+  referral_headline: string | null;
+  created_at: string;
+};
+
+/** A WhatsApp destination number routed to a specific salesperson (falls back to
+ * store-level routing via STORE_WHATSAPP_DESTINATION_NUMBERS when unmapped). */
+export type DestinationNumber = {
+  id: string;
+  phone_number: string;
+  store_id: StoreId;
+  user_id: string | null;
+  user_name?: string | null;
   created_at: string;
 };
 
@@ -124,6 +140,13 @@ export type DashboardMetrics = {
   }>;
 };
 
+export type ParsedWhatsappReferral = {
+  sourceType: string | null;
+  sourceId: string | null;
+  sourceUrl: string | null;
+  headline: string | null;
+};
+
 export type ParsedWhatsappMessage = {
   toNumber: string;
   fromNumber: string;
@@ -131,6 +154,7 @@ export type ParsedWhatsappMessage = {
   customerName: string | null;
   messageId: string | null;
   source: LeadSource;
+  referral: ParsedWhatsappReferral | null;
   raw: unknown;
 };
 

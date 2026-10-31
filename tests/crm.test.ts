@@ -5,6 +5,7 @@ import { buildOutboundContactUpdate } from "../src/lib/followups";
 import { requiresLostReason, sanitizeLeadUpdate } from "../src/lib/lead-updates";
 import { normalizePhone } from "../src/lib/phone";
 import { routeStoreFromToNumber } from "../src/lib/routing";
+import { parseWhatsappWebhook } from "../src/lib/whatsapp";
 import { processWhatsappWebhook } from "../src/lib/crm-service";
 import type { Lead, Message, StoreId } from "../src/lib/types";
 
@@ -25,6 +26,7 @@ function makeLead(partial: Partial<Lead> = {}): Lead {
     notes: null,
     lost_reason: null,
     estimated_sale_amount: null,
+    first_touch_ad_id: null,
     last_contact_date: null,
     next_follow_up_date: null,
     follow_up_count: 0,
@@ -39,6 +41,7 @@ class FakeRepo {
   leads: Lead[] = [];
   messages: Message[] = [];
   activities: unknown[] = [];
+  destinationNumbers = new Map<string, { storeId: StoreId; userId: string | null }>();
 
   async findLeadByWhatsapp(storeId: StoreId, whatsappNumber: string) {
     return (
@@ -52,6 +55,14 @@ class FakeRepo {
     return storeId === "hialeah" ? "sales-hialeah" : "sales-sw";
   }
 
+  async routeDestinationNumber(toNumber: string) {
+    const mapped = this.destinationNumbers.get(normalizePhone(toNumber));
+    if (mapped) {
+      return mapped;
+    }
+    return { storeId: routeStoreFromToNumber(toNumber), userId: null };
+  }
+
   async createLead(input: {
     name: string | null;
     phone: string;
@@ -59,10 +70,12 @@ class FakeRepo {
     store_id: StoreId;
     assigned_user_id: string | null;
     source: Lead["source"];
+    first_touch_ad_id?: string | null;
   }) {
     const lead = makeLead({
       id: `lead-${this.leads.length + 1}`,
       ...input,
+      first_touch_ad_id: input.first_touch_ad_id ?? null,
       status: "New",
       created_at: new Date("2026-06-10T12:00:00.000Z").toISOString(),
       updated_at: new Date("2026-06-10T12:00:00.000Z").toISOString(),
@@ -88,13 +101,21 @@ class FakeRepo {
     body: string;
     external_message_id?: string | null;
     raw_payload?: unknown;
+    referral_source_type?: string | null;
+    referral_source_id?: string | null;
+    referral_source_url?: string | null;
+    referral_headline?: string | null;
   }) {
     const message: Message = {
       id: `message-${this.messages.length + 1}`,
       provider: input.provider || "whatsapp",
       created_at: new Date("2026-06-10T12:00:00.000Z").toISOString(),
       ...input,
-      external_message_id: input.external_message_id ?? null
+      external_message_id: input.external_message_id ?? null,
+      referral_source_type: input.referral_source_type ?? null,
+      referral_source_id: input.referral_source_id ?? null,
+      referral_source_url: input.referral_source_url ?? null,
+      referral_headline: input.referral_headline ?? null
     };
     this.messages.push(message);
     return message;
@@ -253,4 +274,128 @@ test("requiresLostReason only blocks a transition to Lost without a reason", () 
 
   const leadAlreadyLostWithReason = makeLead({ status: "Lost", lost_reason: "Precio" });
   assert.equal(requiresLostReason(leadAlreadyLostWithReason, { notes: "Follow-up call" }), null);
+});
+
+test("parses Meta's referral object off a Cloud API Click-to-WhatsApp message", () => {
+  const [message] = parseWhatsappWebhook({
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              metadata: { display_phone_number: "17867489064" },
+              contacts: [{ wa_id: "13055550123", profile: { name: "Maria Lopez" } }],
+              messages: [
+                {
+                  id: "wamid.ad-1",
+                  from: "13055550123",
+                  text: { body: "Hi, I saw your ad" },
+                  referral: {
+                    source_type: "ad",
+                    source_id: "120210000000001",
+                    source_url: "https://fb.me/abc123",
+                    headline: "Living Room Sale"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(message.source, "meta_ads");
+  assert.deepEqual(message.referral, {
+    sourceType: "ad",
+    sourceId: "120210000000001",
+    sourceUrl: "https://fb.me/abc123",
+    headline: "Living Room Sale"
+  });
+});
+
+test("an organic Cloud API message (no referral) stays source whatsapp", () => {
+  const [message] = parseWhatsappWebhook({
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              metadata: { display_phone_number: "17867489064" },
+              contacts: [{ wa_id: "13055550123", profile: { name: "Maria Lopez" } }],
+              messages: [{ id: "wamid.organic-1", from: "13055550123", text: { body: "Hi" } }]
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(message.source, "whatsapp");
+  assert.equal(message.referral, null);
+});
+
+test("a number mapped in destination_numbers routes straight to that salesperson", async () => {
+  const repo = new FakeRepo();
+  repo.destinationNumbers.set(normalizePhone("+17867489064"), { storeId: "hialeah", userId: "dayi-user-id" });
+
+  const result = await processWhatsappWebhook(
+    {
+      to_number: "+17867489064",
+      from_number: "+13055550199",
+      body: "Looking for a dining set",
+      name: "New Customer"
+    },
+    repo
+  );
+
+  assert.equal(result.leads[0].assignedUserId, "dayi-user-id");
+  assert.equal(repo.leads[0].assigned_user_id, "dayi-user-id");
+});
+
+test("an unmapped number still falls back to store-level round robin", async () => {
+  const repo = new FakeRepo();
+
+  const result = await processWhatsappWebhook(
+    {
+      to_number: "+13058019649",
+      from_number: "+13055550200",
+      body: "Looking for a mattress",
+      name: "Another Customer"
+    },
+    repo
+  );
+
+  assert.equal(result.leads[0].storeId, "sw");
+  assert.equal(result.leads[0].assignedUserId, "sales-sw");
+});
+
+test("first_touch_ad_id is set from the first message's referral and never overwritten", async () => {
+  const repo = new FakeRepo();
+
+  await processWhatsappWebhook(
+    {
+      to_number: "+17867489064",
+      from_number: "+13055550321",
+      body: "Saw your ad",
+      name: "Ad Lead",
+      referral: { source_id: "ad-first-touch", source_type: "ad" }
+    },
+    repo
+  );
+
+  assert.equal(repo.leads[0].first_touch_ad_id, "ad-first-touch");
+
+  await processWhatsappWebhook(
+    {
+      to_number: "+17867489064",
+      from_number: "+13055550321",
+      body: "Following up",
+      referral: { source_id: "ad-second-touch", source_type: "ad" }
+    },
+    repo
+  );
+
+  assert.equal(repo.leads.length, 1);
+  assert.equal(repo.leads[0].first_touch_ad_id, "ad-first-touch");
 });

@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS leads (
 
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS lost_reason text;
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS estimated_sale_amount numeric(12, 2);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS first_touch_ad_id text;
 
 CREATE TABLE IF NOT EXISTS messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -78,6 +79,23 @@ CREATE TABLE IF NOT EXISTS messages (
   body text,
   external_message_id text,
   raw_payload jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_type text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_id text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_url text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_headline text;
+
+-- Per-salesperson WhatsApp number routing. A number not listed here still routes
+-- correctly via the store-level fallback in src/lib/routing.ts (unchanged) — adding
+-- a row here is what upgrades a number from "routes to the store" to "routes to one
+-- salesperson", e.g. piloting a single number before connecting Dayi's/Ali's real ones.
+CREATE TABLE IF NOT EXISTS destination_numbers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone_number text NOT NULL UNIQUE,
+  store_id text NOT NULL REFERENCES stores(id),
+  user_id uuid REFERENCES users(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -118,6 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_activities_lead_created ON activities(lead_id, cr
 CREATE INDEX IF NOT EXISTS idx_appointments_lead_start ON appointments(lead_id, scheduled_start DESC);
 CREATE INDEX IF NOT EXISTS idx_appointments_store_start ON appointments(store_id, scheduled_start DESC);
 CREATE INDEX IF NOT EXISTS idx_appointments_user_start ON appointments(user_id, scheduled_start DESC);
+CREATE INDEX IF NOT EXISTS idx_destination_numbers_user ON destination_numbers(user_id);
 
 INSERT INTO stores (id, name, whatsapp_number)
 VALUES
@@ -139,6 +158,15 @@ SET name = EXCLUDED.name,
     role = EXCLUDED.role,
     store_id = EXCLUDED.store_id,
     active = true;
+
+-- Unassigned (user_id NULL) so existing routing behavior is unchanged: these numbers
+-- still fall back to store-level round-robin until someone is explicitly mapped to one.
+INSERT INTO destination_numbers (phone_number, store_id, user_id)
+VALUES
+  ('+17867489064', 'hialeah', NULL),
+  ('+13058039820', 'hialeah', NULL),
+  ('+13058019649', 'sw', NULL)
+ON CONFLICT (phone_number) DO NOTHING;
 
 UPDATE users
 SET active = false
