@@ -7,13 +7,16 @@ import {
   demoFindLeadByWhatsapp,
   demoGetLeadById,
   demoListAppointments,
+  demoListDestinationNumbers,
   demoListLeads,
   demoListMessages,
   demoListStores,
   demoListUsers,
   demoAuthenticateUser,
   demoPickSalespersonForStore,
+  demoRouteDestinationNumber,
   demoUpdateLead,
+  demoUpsertDestinationNumber,
   shouldUseDemoStore
 } from "./demo-store";
 import {
@@ -24,13 +27,16 @@ import {
   findLeadByWhatsapp,
   getLeadById,
   listAppointments,
+  listDestinationNumbers,
   listLeads,
   listMessages,
   listStores,
   listUsers,
   authenticateUser,
   pickSalespersonForStore,
-  updateLead
+  routeDestinationNumber,
+  updateLead,
+  upsertDestinationNumber
 } from "./repositories";
 
 const databaseRepository = {
@@ -41,6 +47,9 @@ const databaseRepository = {
   getLeadById,
   findLeadByWhatsapp,
   pickSalespersonForStore,
+  routeDestinationNumber,
+  listDestinationNumbers,
+  upsertDestinationNumber,
   createLead,
   updateLead,
   createMessage,
@@ -58,6 +67,9 @@ const demoRepository = {
   getLeadById: demoGetLeadById,
   findLeadByWhatsapp: demoFindLeadByWhatsapp,
   pickSalespersonForStore: demoPickSalespersonForStore,
+  routeDestinationNumber: demoRouteDestinationNumber,
+  listDestinationNumbers: demoListDestinationNumbers,
+  upsertDestinationNumber: demoUpsertDestinationNumber,
   createLead: demoCreateLead,
   updateLead: demoUpdateLead,
   createMessage: demoCreateMessage,
@@ -76,6 +88,7 @@ export function getCrmRepository(): CrmRepository {
   return {
     findLeadByWhatsapp: repo.findLeadByWhatsapp,
     pickSalespersonForStore: repo.pickSalespersonForStore,
+    routeDestinationNumber: repo.routeDestinationNumber,
     createLead: repo.createLead,
     updateLead: repo.updateLead,
     createMessage: repo.createMessage,

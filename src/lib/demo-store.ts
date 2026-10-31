@@ -1,8 +1,10 @@
 import { ACTIVE_STATUSES, STORES } from "./constants";
 import { normalizePhone } from "./phone";
+import { routeStoreFromToNumber } from "./routing";
 import type {
   Activity,
   Appointment,
+  DestinationNumber,
   Lead,
   LeadSource,
   LeadStatus,
@@ -18,6 +20,7 @@ type DemoState = {
   messages: Message[];
   activities: Activity[];
   appointments: Appointment[];
+  destinationNumbers: DestinationNumber[];
 };
 
 type DemoUser = User & {
@@ -86,6 +89,7 @@ function lead(input: Partial<Lead> & Pick<Lead, "id" | "name" | "whatsapp_number
     notes: null,
     lost_reason: null,
     estimated_sale_amount: null,
+    first_touch_ad_id: null,
     last_contact_date: null,
     next_follow_up_date: iso(20),
     follow_up_count: 0,
@@ -171,11 +175,20 @@ function createInitialState(): DemoState {
         to_number: "+17867489064",
         body: "Hi, I need a bedroom set",
         external_message_id: "demo-message-1",
+        referral_source_type: null,
+        referral_source_id: null,
+        referral_source_url: null,
+        referral_headline: null,
         created_at: iso(-5)
       }
     ],
     activities: [],
-    appointments: []
+    appointments: [],
+    destinationNumbers: [
+      { id: "destination-demo-1", phone_number: "+17867489064", store_id: "hialeah", user_id: null, created_at: iso(-999) },
+      { id: "destination-demo-2", phone_number: "+13058039820", store_id: "hialeah", user_id: null, created_at: iso(-999) },
+      { id: "destination-demo-3", phone_number: "+13058019649", store_id: "sw", user_id: null, created_at: iso(-999) }
+    ]
   };
 }
 
@@ -284,6 +297,7 @@ export async function demoCreateLead(input: {
   store_id: StoreId;
   assigned_user_id: string | null;
   source: LeadSource;
+  first_touch_ad_id?: string | null;
 }) {
   const now = new Date().toISOString();
   const created = withAssignedUserName({
@@ -299,6 +313,7 @@ export async function demoCreateLead(input: {
     notes: null,
     lost_reason: null,
     estimated_sale_amount: null,
+    first_touch_ad_id: input.first_touch_ad_id || null,
     last_contact_date: null,
     next_follow_up_date: null,
     follow_up_count: 0,
@@ -333,6 +348,10 @@ export async function demoCreateMessage(input: {
   body: string;
   external_message_id?: string | null;
   raw_payload?: unknown;
+  referral_source_type?: string | null;
+  referral_source_id?: string | null;
+  referral_source_url?: string | null;
+  referral_headline?: string | null;
 }) {
   const message: Message = {
     id: `message-demo-${crypto.randomUUID()}`,
@@ -344,6 +363,10 @@ export async function demoCreateMessage(input: {
     body: input.body,
     external_message_id: input.external_message_id || null,
     raw_payload: input.raw_payload,
+    referral_source_type: input.referral_source_type || null,
+    referral_source_id: input.referral_source_id || null,
+    referral_source_url: input.referral_source_url || null,
+    referral_headline: input.referral_headline || null,
     created_at: new Date().toISOString()
   };
   state().messages.push(message);
@@ -420,4 +443,47 @@ export async function demoListAppointments(filters: {
     .filter((item) => !filters.userId || item.user_id === filters.userId)
     .sort((left, right) => new Date(right.scheduled_start).getTime() - new Date(left.scheduled_start).getTime())
     .slice(0, filters.limit || 100);
+}
+
+function withDestinationUserName(entry: DestinationNumber): DestinationNumber {
+  const user = state().users.find((item) => item.id === entry.user_id);
+  return { ...entry, user_name: user?.name || null };
+}
+
+export async function demoRouteDestinationNumber(toNumber: string) {
+  const normalized = normalizePhone(toNumber);
+  const found = state().destinationNumbers.find((item) => item.phone_number === normalized);
+
+  if (found) {
+    return { storeId: found.store_id, userId: found.user_id };
+  }
+
+  return { storeId: routeStoreFromToNumber(toNumber), userId: null };
+}
+
+export async function demoListDestinationNumbers() {
+  return state()
+    .destinationNumbers.slice()
+    .sort((left, right) => left.phone_number.localeCompare(right.phone_number))
+    .map(withDestinationUserName);
+}
+
+export async function demoUpsertDestinationNumber(input: { phone_number: string; store_id: StoreId; user_id: string | null }) {
+  const normalized = normalizePhone(input.phone_number);
+  const index = state().destinationNumbers.findIndex((item) => item.phone_number === normalized);
+  const entry: DestinationNumber = {
+    id: index === -1 ? `destination-demo-${crypto.randomUUID()}` : state().destinationNumbers[index].id,
+    phone_number: normalized,
+    store_id: input.store_id,
+    user_id: input.user_id,
+    created_at: index === -1 ? new Date().toISOString() : state().destinationNumbers[index].created_at
+  };
+
+  if (index === -1) {
+    state().destinationNumbers.push(entry);
+  } else {
+    state().destinationNumbers[index] = entry;
+  }
+
+  return withDestinationUserName(entry);
 }
