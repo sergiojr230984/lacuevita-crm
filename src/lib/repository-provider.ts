@@ -1,3 +1,4 @@
+import { withTransaction } from "./db";
 import type { CrmRepository } from "./crm-service";
 import {
   demoCreateAppointment,
@@ -5,6 +6,7 @@ import {
   demoCreateLead,
   demoCreateMessage,
   demoFindLeadByWhatsapp,
+  demoFindMessageByExternalId,
   demoGetLeadById,
   demoListAppointments,
   demoListDestinationNumbers,
@@ -26,6 +28,7 @@ import {
   createMessage,
   findLeadByWhatsapp,
   getLeadById,
+  getMessageByExternalId,
   listAppointments,
   listDestinationNumbers,
   listLeads,
@@ -84,14 +87,41 @@ export function getRepository() {
 }
 
 export function getCrmRepository(): CrmRepository {
-  const repo = getRepository();
+  if (shouldUseDemoStore()) {
+    return {
+      findLeadByWhatsapp: demoFindLeadByWhatsapp,
+      pickSalespersonForStore: demoPickSalespersonForStore,
+      routeDestinationNumber: demoRouteDestinationNumber,
+      createLead: demoCreateLead,
+      updateLead: demoUpdateLead,
+      createMessage: demoCreateMessage,
+      createActivity: demoCreateActivity,
+      findMessageByExternalId: demoFindMessageByExternalId
+    };
+  }
+
   return {
-    findLeadByWhatsapp: repo.findLeadByWhatsapp,
-    pickSalespersonForStore: repo.pickSalespersonForStore,
-    routeDestinationNumber: repo.routeDestinationNumber,
-    createLead: repo.createLead,
-    updateLead: repo.updateLead,
-    createMessage: repo.createMessage,
-    createActivity: repo.createActivity
+    findLeadByWhatsapp,
+    pickSalespersonForStore,
+    routeDestinationNumber,
+    createLead,
+    updateLead,
+    createMessage,
+    createActivity,
+    findMessageByExternalId: getMessageByExternalId,
+    withTransaction(fn) {
+      return withTransaction((client) =>
+        fn({
+          findLeadByWhatsapp: (storeId, whatsappNumber) => findLeadByWhatsapp(storeId, whatsappNumber, client),
+          pickSalespersonForStore: (storeId) => pickSalespersonForStore(storeId, client),
+          routeDestinationNumber,
+          createLead: (input) => createLead(input, client),
+          updateLead: (id, input) => updateLead(id, input, client),
+          createMessage: (input) => createMessage(input, client),
+          createActivity: (input) => createActivity(input, client),
+          findMessageByExternalId: (externalMessageId) => getMessageByExternalId(externalMessageId, client)
+        })
+      );
+    }
   };
 }

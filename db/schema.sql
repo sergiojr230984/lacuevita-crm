@@ -86,6 +86,14 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_type text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_id text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_source_url text;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS referral_headline text;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_manual boolean NOT NULL DEFAULT false;
+
+-- Deduplicates webhook retries / concurrent deliveries of the same WhatsApp message.
+-- Partial (NULLs excluded) so manually-logged outbound messages, which have no
+-- provider message id, are never blocked by this constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_message_id_unique
+  ON messages(external_message_id)
+  WHERE external_message_id IS NOT NULL;
 
 -- Per-salesperson WhatsApp number routing. A number not listed here still routes
 -- correctly via the store-level fallback in src/lib/routing.ts (unchanged) — adding

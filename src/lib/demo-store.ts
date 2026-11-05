@@ -179,6 +179,7 @@ function createInitialState(): DemoState {
         referral_source_id: null,
         referral_source_url: null,
         referral_headline: null,
+        is_manual: false,
         created_at: iso(-5)
       }
     ],
@@ -299,6 +300,11 @@ export async function demoCreateLead(input: {
   source: LeadSource;
   first_touch_ad_id?: string | null;
 }) {
+  const existing = await demoFindLeadByWhatsapp(input.store_id, input.whatsapp_number);
+  if (existing) {
+    return existing;
+  }
+
   const now = new Date().toISOString();
   const created = withAssignedUserName({
     id: `lead-demo-${crypto.randomUUID()}`,
@@ -339,6 +345,10 @@ export async function demoUpdateLead(id: string, input: Partial<Lead>) {
   return state().leads[index];
 }
 
+export async function demoFindMessageByExternalId(externalMessageId: string) {
+  return state().messages.find((item) => item.external_message_id === externalMessageId) || null;
+}
+
 export async function demoCreateMessage(input: {
   lead_id: string;
   direction: MessageDirection;
@@ -352,7 +362,15 @@ export async function demoCreateMessage(input: {
   referral_source_id?: string | null;
   referral_source_url?: string | null;
   referral_headline?: string | null;
+  is_manual?: boolean;
 }) {
+  if (input.external_message_id) {
+    const existing = await demoFindMessageByExternalId(input.external_message_id);
+    if (existing) {
+      return existing;
+    }
+  }
+
   const message: Message = {
     id: `message-demo-${crypto.randomUUID()}`,
     lead_id: input.lead_id,
@@ -367,6 +385,7 @@ export async function demoCreateMessage(input: {
     referral_source_id: input.referral_source_id || null,
     referral_source_url: input.referral_source_url || null,
     referral_headline: input.referral_headline || null,
+    is_manual: input.is_manual ?? false,
     created_at: new Date().toISOString()
   };
   state().messages.push(message);

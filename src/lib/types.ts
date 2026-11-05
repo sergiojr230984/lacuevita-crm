@@ -68,6 +68,7 @@ export type Message = {
   referral_source_id: string | null;
   referral_source_url: string | null;
   referral_headline: string | null;
+  is_manual: boolean;
   created_at: string;
 };
 
