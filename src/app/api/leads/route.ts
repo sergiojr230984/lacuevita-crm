@@ -9,18 +9,34 @@ import {
   parseStoreId
 } from "@/lib/route-helpers";
 import { parseLeadSourceValue, parseLeadStatusValue } from "@/lib/lead-updates";
+import { getCurrentUser } from "@/lib/session";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
+      return jsonError("Not logged in", 401);
+    }
+
     const repo = getRepository();
-    const storeId = parseStoreId(getSearchParam(request, "storeId"));
+    const requestedStoreId = parseStoreId(getSearchParam(request, "storeId"));
     const status = parseLeadStatusValue(getSearchParam(request, "status"));
-    const userId = getSearchParam(request, "userId") || undefined;
+    const requestedUserId = getSearchParam(request, "userId") || undefined;
     const search = getSearchParam(request, "search") || undefined;
+
+    let storeId = requestedStoreId || undefined;
+    let userId = requestedUserId;
+
+    if (currentUser.role === "salesperson") {
+      userId = currentUser.id;
+    } else if (currentUser.role === "manager" && currentUser.store_id) {
+      storeId = currentUser.store_id;
+    }
+
     const leads = await repo.listLeads({
-      storeId: storeId || undefined,
+      storeId,
       status: status || undefined,
       userId,
       search
@@ -34,6 +50,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
+      return jsonError("Not logged in", 401);
+    }
+
     const repo = getRepository();
     const body = (await request.json()) as Record<string, unknown>;
     const toNumber = typeof body.to_number === "string" ? body.to_number : "";

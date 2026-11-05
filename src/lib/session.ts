@@ -1,53 +1,21 @@
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { shouldUseDemoStore } from "./demo-store";
+import { signSessionToken, verifySessionToken } from "./session-token";
 import type { User } from "./types";
 
 const COOKIE_NAME = "lacuevita_session";
-
-type SessionPayload = {
-  user: User;
-  expiresAt: number;
-};
+const DEMO_ONLY_SECRET = "local-demo-secret-change-before-production";
 
 function secret() {
-  return process.env.AUTH_SECRET || "local-demo-secret-change-before-production";
-}
-
-function base64url(value: string) {
-  return Buffer.from(value).toString("base64url");
-}
-
-function fromBase64url(value: string) {
-  return Buffer.from(value, "base64url").toString("utf8");
-}
-
-function sign(value: string) {
-  return createHmac("sha256", secret()).update(value).digest("base64url");
-}
-
-function makeToken(payload: SessionPayload) {
-  const body = base64url(JSON.stringify(payload));
-  return `${body}.${sign(body)}`;
-}
-
-function readToken(token: string): SessionPayload | null {
-  const [body, signature] = token.split(".");
-  if (!body || !signature) return null;
-
-  const expected = sign(body);
-  const expectedBytes = Buffer.from(expected);
-  const signatureBytes = Buffer.from(signature);
-
-  if (expectedBytes.length !== signatureBytes.length || !timingSafeEqual(expectedBytes, signatureBytes)) {
-    return null;
+  if (process.env.AUTH_SECRET) {
+    return process.env.AUTH_SECRET;
   }
 
-  const payload = JSON.parse(fromBase64url(body)) as SessionPayload;
-  if (!payload.expiresAt || payload.expiresAt < Date.now()) {
-    return null;
+  if (shouldUseDemoStore()) {
+    return DEMO_ONLY_SECRET;
   }
 
-  return payload;
+  throw new Error("AUTH_SECRET environment variable is required when DATABASE_URL is configured");
 }
 
 export async function getCurrentUser() {
@@ -56,7 +24,7 @@ export async function getCurrentUser() {
   if (!token) return null;
 
   try {
-    return readToken(token)?.user || null;
+    return verifySessionToken(token, secret())?.user || null;
   } catch {
     return null;
   }
@@ -65,7 +33,7 @@ export async function getCurrentUser() {
 export async function setSession(user: User) {
   const cookieStore = await cookies();
   const expiresAt = Date.now() + 1000 * 60 * 60 * 12;
-  cookieStore.set(COOKIE_NAME, makeToken({ user, expiresAt }), {
+  cookieStore.set(COOKIE_NAME, signSessionToken({ user, expiresAt }, secret()), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

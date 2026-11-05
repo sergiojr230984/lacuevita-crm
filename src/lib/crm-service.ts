@@ -26,6 +26,7 @@ export type CrmRepository = {
     body: string;
     external_message_id?: string | null;
     raw_payload?: unknown;
+    is_manual?: boolean;
   }): Promise<Message>;
   createActivity(input: {
     lead_id: string;
@@ -36,6 +37,8 @@ export type CrmRepository = {
     notes?: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<unknown>;
+  findMessageByExternalId?(externalMessageId: string): Promise<Message | null>;
+  withTransaction?<T>(fn: (repo: CrmRepository) => Promise<T>): Promise<T>;
 };
 
 export type WebhookProcessResult = {
@@ -46,6 +49,7 @@ export type WebhookProcessResult = {
     created: boolean;
     assignedUserId: string | null;
     messageId: string | null;
+    duplicate?: boolean;
   }>;
 };
 
@@ -56,57 +60,79 @@ async function upsertLeadFromInboundMessage(
 ) {
   const storeId = routeStoreFromToNumber(message.toNumber);
   const fromNumber = normalizePhone(message.fromNumber);
-  let lead = await repo.findLeadByWhatsapp(storeId, fromNumber);
-  let created = false;
 
-  if (!lead) {
-    const assignedUserId = await repo.pickSalespersonForStore(storeId);
-    lead = await repo.createLead({
-      name: message.customerName,
-      phone: fromNumber,
-      whatsapp_number: fromNumber,
-      store_id: storeId,
-      assigned_user_id: assignedUserId,
-      source: message.source
-    });
-    created = true;
-  } else {
-    lead = await repo.updateLead(lead.id, {
-      name: lead.name || message.customerName,
-      last_activity_at: now.toISOString()
-    });
+  // Skip entirely idempotent re-deliveries of a message we already recorded
+  // (Meta retries webhooks, and this also covers simultaneous duplicate calls).
+  if (message.messageId && repo.findMessageByExternalId) {
+    const existingMessage = await repo.findMessageByExternalId(message.messageId);
+    if (existingMessage) {
+      const existingLead = await repo.findLeadByWhatsapp(storeId, fromNumber);
+      return {
+        leadId: existingMessage.lead_id,
+        storeId,
+        created: false,
+        assignedUserId: existingLead?.assigned_user_id ?? null,
+        messageId: message.messageId,
+        duplicate: true
+      };
+    }
   }
 
-  await repo.createMessage({
-    lead_id: lead.id,
-    direction: "inbound",
-    provider: "whatsapp",
-    from_number: fromNumber,
-    to_number: message.toNumber,
-    body: message.body,
-    external_message_id: message.messageId,
-    raw_payload: message.raw
-  });
+  const run = async (txRepo: CrmRepository) => {
+    let lead = await txRepo.findLeadByWhatsapp(storeId, fromNumber);
+    let created = false;
 
-  await repo.createActivity({
-    lead_id: lead.id,
-    type: created ? "lead_created_from_whatsapp" : "message_received",
-    notes: message.body,
-    metadata: {
-      store_id: storeId,
-      to_number: message.toNumber,
-      from_number: fromNumber,
-      external_message_id: message.messageId
+    if (!lead) {
+      const assignedUserId = await txRepo.pickSalespersonForStore(storeId);
+      lead = await txRepo.createLead({
+        name: message.customerName,
+        phone: fromNumber,
+        whatsapp_number: fromNumber,
+        store_id: storeId,
+        assigned_user_id: assignedUserId,
+        source: message.source
+      });
+      created = true;
+    } else {
+      lead = await txRepo.updateLead(lead.id, {
+        name: lead.name || message.customerName,
+        last_activity_at: now.toISOString()
+      });
     }
-  });
 
-  return {
-    leadId: lead.id,
-    storeId,
-    created,
-    assignedUserId: lead.assigned_user_id,
-    messageId: message.messageId
+    await txRepo.createMessage({
+      lead_id: lead.id,
+      direction: "inbound",
+      provider: "whatsapp",
+      from_number: fromNumber,
+      to_number: message.toNumber,
+      body: message.body,
+      external_message_id: message.messageId,
+      raw_payload: message.raw
+    });
+
+    await txRepo.createActivity({
+      lead_id: lead.id,
+      type: created ? "lead_created_from_whatsapp" : "message_received",
+      notes: message.body,
+      metadata: {
+        store_id: storeId,
+        to_number: message.toNumber,
+        from_number: fromNumber,
+        external_message_id: message.messageId
+      }
+    });
+
+    return {
+      leadId: lead.id,
+      storeId,
+      created,
+      assignedUserId: lead.assigned_user_id,
+      messageId: message.messageId
+    };
   };
+
+  return repo.withTransaction ? repo.withTransaction(run) : run(repo);
 }
 
 export async function processWhatsappWebhook(
@@ -144,41 +170,46 @@ export async function logOutboundContact({
   repo,
   now = new Date()
 }: OutboundContactInput) {
-  const { firstContact, ...update } = buildOutboundContactUpdate(lead, now, nextFollowUpDate);
-  const previousStatus = lead.status;
-  const updatedLead = await repo.updateLead(lead.id, update);
+  const run = async (txRepo: CrmRepository) => {
+    const { firstContact, ...update } = buildOutboundContactUpdate(lead, now, nextFollowUpDate);
+    const previousStatus = lead.status;
+    const updatedLead = await txRepo.updateLead(lead.id, update);
 
-  await repo.createMessage({
-    lead_id: lead.id,
-    direction: "outbound",
-    provider: "whatsapp",
-    from_number: STORE_WHATSAPP_NUMBERS[lead.store_id],
-    to_number: lead.whatsapp_number,
-    body,
-    raw_payload: { logged_by: userId, manual_log: true }
-  });
+    await txRepo.createMessage({
+      lead_id: lead.id,
+      direction: "outbound",
+      provider: "whatsapp",
+      from_number: STORE_WHATSAPP_NUMBERS[lead.store_id],
+      to_number: lead.whatsapp_number,
+      body,
+      raw_payload: { logged_by: userId, manual_log: true },
+      is_manual: true
+    });
 
-  await repo.createActivity({
-    lead_id: lead.id,
-    user_id: userId,
-    type: "message_sent",
-    notes: body,
-    metadata: {
-      first_contact: firstContact,
-      follow_up_count: update.follow_up_count
-    }
-  });
-
-  if (previousStatus !== updatedLead.status) {
-    await repo.createActivity({
+    await txRepo.createActivity({
       lead_id: lead.id,
       user_id: userId,
-      type: "status_changed",
-      from_status: previousStatus,
-      to_status: updatedLead.status,
-      metadata: { reason: "first_outbound_contact" }
+      type: "message_sent",
+      notes: body,
+      metadata: {
+        first_contact: firstContact,
+        follow_up_count: update.follow_up_count
+      }
     });
-  }
 
-  return updatedLead;
+    if (previousStatus !== updatedLead.status) {
+      await txRepo.createActivity({
+        lead_id: lead.id,
+        user_id: userId,
+        type: "status_changed",
+        from_status: previousStatus,
+        to_status: updatedLead.status,
+        metadata: { reason: "first_outbound_contact" }
+      });
+    }
+
+    return updatedLead;
+  };
+
+  return repo.withTransaction ? repo.withTransaction(run) : run(repo);
 }

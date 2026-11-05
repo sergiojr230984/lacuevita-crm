@@ -1,6 +1,6 @@
 import { STORE_WHATSAPP_NUMBERS } from "./constants";
 import { normalizePhone } from "./phone";
-import { query } from "./db";
+import { query, type DbClient } from "./db";
 import type {
   Activity,
   Appointment,
@@ -55,6 +55,7 @@ export type CreateMessageInput = {
   body: string;
   external_message_id?: string | null;
   raw_payload?: unknown;
+  is_manual?: boolean;
 };
 
 export type CreateActivityInput = {
@@ -171,7 +172,11 @@ export async function getLeadById(id: string): Promise<Lead | null> {
   return result.rows[0] || null;
 }
 
-export async function findLeadByWhatsapp(storeId: StoreId, whatsappNumber: string): Promise<Lead | null> {
+export async function findLeadByWhatsapp(
+  storeId: StoreId,
+  whatsappNumber: string,
+  client?: DbClient
+): Promise<Lead | null> {
   const result = await query<Lead>(
     `
       SELECT l.*, u.name AS assigned_user_name
@@ -180,13 +185,14 @@ export async function findLeadByWhatsapp(storeId: StoreId, whatsappNumber: strin
       WHERE l.store_id = $1 AND l.whatsapp_number = $2
       LIMIT 1
     `,
-    [storeId, normalizePhone(whatsappNumber)]
+    [storeId, normalizePhone(whatsappNumber)],
+    client
   );
 
   return result.rows[0] || null;
 }
 
-export async function pickSalespersonForStore(storeId: StoreId): Promise<string | null> {
+export async function pickSalespersonForStore(storeId: StoreId, client?: DbClient): Promise<string | null> {
   const result = await query<{ id: string }>(
     `
       SELECT u.id, count(l.id) AS active_leads
@@ -201,17 +207,23 @@ export async function pickSalespersonForStore(storeId: StoreId): Promise<string 
       ORDER BY active_leads ASC, u.created_at ASC
       LIMIT 1
     `,
-    [storeId]
+    [storeId],
+    client
   );
 
   return result.rows[0]?.id || null;
 }
 
-export async function createLead(input: CreateLeadInput): Promise<Lead> {
+// ON CONFLICT DO NOTHING + fallback fetch gracefully handles the race where two
+// concurrent requests (e.g. simultaneous WhatsApp webhook deliveries) both try to
+// create a lead for the same store+customer: the losing insert is a no-op and we
+// hand back the winner's row instead of surfacing a unique-constraint error.
+export async function createLead(input: CreateLeadInput, client?: DbClient): Promise<Lead> {
   const result = await query<Lead>(
     `
       INSERT INTO leads (name, phone, whatsapp_number, store_id, assigned_user_id, source)
       VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (store_id, whatsapp_number) DO NOTHING
       RETURNING *
     `,
     [
@@ -221,13 +233,23 @@ export async function createLead(input: CreateLeadInput): Promise<Lead> {
       input.store_id,
       input.assigned_user_id,
       input.source
-    ]
+    ],
+    client
   );
 
-  return result.rows[0];
+  if (result.rows[0]) {
+    return result.rows[0];
+  }
+
+  const existing = await findLeadByWhatsapp(input.store_id, input.whatsapp_number, client);
+  if (!existing) {
+    throw new Error("Failed to create or find lead");
+  }
+
+  return existing;
 }
 
-export async function updateLead(id: string, input: UpdateLeadInput): Promise<Lead> {
+export async function updateLead(id: string, input: UpdateLeadInput, client?: DbClient): Promise<Lead> {
   const allowedEntries = Object.entries(input).filter(([, value]) => value !== undefined);
 
   if (!allowedEntries.length) {
@@ -248,7 +270,8 @@ export async function updateLead(id: string, input: UpdateLeadInput): Promise<Le
       WHERE id = $1
       RETURNING *
     `,
-    params
+    params,
+    client
   );
 
   if (!result.rows[0]) {
@@ -265,7 +288,21 @@ export async function touchInboundLead(lead: Lead, name: string | null, activity
   });
 }
 
-export async function createMessage(input: CreateMessageInput): Promise<Message> {
+export async function getMessageByExternalId(externalMessageId: string, client?: DbClient): Promise<Message | null> {
+  const result = await query<Message>(
+    "SELECT * FROM messages WHERE external_message_id = $1 LIMIT 1",
+    [externalMessageId],
+    client
+  );
+
+  return result.rows[0] || null;
+}
+
+// ON CONFLICT DO NOTHING + fallback fetch deduplicates retried/duplicate webhook
+// deliveries of the same WhatsApp message (see the partial unique index on
+// external_message_id in db/schema.sql). Messages with no external_message_id
+// (manual outbound logs) are never affected by the conflict target.
+export async function createMessage(input: CreateMessageInput, client?: DbClient): Promise<Message> {
   const result = await query<Message>(
     `
       INSERT INTO messages (
@@ -276,9 +313,11 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
         to_number,
         body,
         external_message_id,
-        raw_payload
+        raw_payload,
+        is_manual
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (external_message_id) WHERE external_message_id IS NOT NULL DO NOTHING
       RETURNING *
     `,
     [
@@ -289,11 +328,25 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
       normalizePhone(input.to_number),
       input.body,
       input.external_message_id || null,
-      input.raw_payload ? JSON.stringify(input.raw_payload) : null
-    ]
+      input.raw_payload ? JSON.stringify(input.raw_payload) : null,
+      input.is_manual ?? false
+    ],
+    client
   );
 
-  return result.rows[0];
+  if (result.rows[0]) {
+    return result.rows[0];
+  }
+
+  const existing = input.external_message_id
+    ? await getMessageByExternalId(input.external_message_id, client)
+    : null;
+
+  if (!existing) {
+    throw new Error("Failed to create or find message");
+  }
+
+  return existing;
 }
 
 export async function listMessages(leadId: string): Promise<Message[]> {
@@ -310,7 +363,7 @@ export async function listMessages(leadId: string): Promise<Message[]> {
   return result.rows;
 }
 
-export async function createActivity(input: CreateActivityInput): Promise<Activity> {
+export async function createActivity(input: CreateActivityInput, client?: DbClient): Promise<Activity> {
   const result = await query<Activity>(
     `
       INSERT INTO activities (
@@ -333,7 +386,8 @@ export async function createActivity(input: CreateActivityInput): Promise<Activi
       input.to_status || null,
       input.notes || null,
       JSON.stringify(input.metadata || {})
-    ]
+    ],
+    client
   );
 
   return result.rows[0];

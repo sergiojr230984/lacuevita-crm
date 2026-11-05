@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api-response";
+import { canAccessLead } from "@/lib/authz";
 import { requiresLostReason, sanitizeLeadUpdate } from "@/lib/lead-updates";
 import { getRepository } from "@/lib/repository-provider";
 import { handleRouteError } from "@/lib/route-helpers";
@@ -20,6 +21,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     if (!lead) {
       return jsonError("Lead not found", 404);
+    }
+
+    if (!canAccessLead(currentUser, lead)) {
+      return jsonError("This lead is not available to your login", 403);
     }
 
     return jsonOk({ lead });
@@ -43,12 +48,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return jsonError("Lead not found", 404);
     }
 
-    if (currentUser.role === "salesperson" && existing.assigned_user_id !== currentUser.id) {
-      return jsonError("This lead is not assigned to your login", 403);
-    }
-
-    if (currentUser.role === "manager" && currentUser.store_id && existing.store_id !== currentUser.store_id) {
-      return jsonError("This lead belongs to another store", 403);
+    if (!canAccessLead(currentUser, existing)) {
+      return jsonError("This lead is not available to your login", 403);
     }
 
     const body = (await request.json()) as Record<string, unknown>;
