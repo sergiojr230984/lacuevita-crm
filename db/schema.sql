@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_manual boolean NOT NULL DEFAULT false;
+
+-- Deduplicates webhook retries / concurrent deliveries of the same WhatsApp message.
+-- Partial (NULLs excluded) so manually-logged outbound messages, which have no
+-- provider message id, are never blocked by this constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_message_id_unique
+  ON messages(external_message_id)
+  WHERE external_message_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS activities (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   lead_id uuid NOT NULL REFERENCES leads(id) ON DELETE CASCADE,

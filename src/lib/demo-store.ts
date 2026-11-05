@@ -171,6 +171,7 @@ function createInitialState(): DemoState {
         to_number: "+17867489064",
         body: "Hi, I need a bedroom set",
         external_message_id: "demo-message-1",
+        is_manual: false,
         created_at: iso(-5)
       }
     ],
@@ -285,6 +286,11 @@ export async function demoCreateLead(input: {
   assigned_user_id: string | null;
   source: LeadSource;
 }) {
+  const existing = await demoFindLeadByWhatsapp(input.store_id, input.whatsapp_number);
+  if (existing) {
+    return existing;
+  }
+
   const now = new Date().toISOString();
   const created = withAssignedUserName({
     id: `lead-demo-${crypto.randomUUID()}`,
@@ -324,6 +330,10 @@ export async function demoUpdateLead(id: string, input: Partial<Lead>) {
   return state().leads[index];
 }
 
+export async function demoFindMessageByExternalId(externalMessageId: string) {
+  return state().messages.find((item) => item.external_message_id === externalMessageId) || null;
+}
+
 export async function demoCreateMessage(input: {
   lead_id: string;
   direction: MessageDirection;
@@ -333,7 +343,15 @@ export async function demoCreateMessage(input: {
   body: string;
   external_message_id?: string | null;
   raw_payload?: unknown;
+  is_manual?: boolean;
 }) {
+  if (input.external_message_id) {
+    const existing = await demoFindMessageByExternalId(input.external_message_id);
+    if (existing) {
+      return existing;
+    }
+  }
+
   const message: Message = {
     id: `message-demo-${crypto.randomUUID()}`,
     lead_id: input.lead_id,
@@ -344,6 +362,7 @@ export async function demoCreateMessage(input: {
     body: input.body,
     external_message_id: input.external_message_id || null,
     raw_payload: input.raw_payload,
+    is_manual: input.is_manual ?? false,
     created_at: new Date().toISOString()
   };
   state().messages.push(message);

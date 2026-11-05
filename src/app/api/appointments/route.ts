@@ -1,19 +1,13 @@
 import type { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api-response";
+import { canAccessLead } from "@/lib/authz";
 import { shouldUseDemoStore } from "@/lib/demo-store";
 import { createGoogleCalendarEvent, isGoogleCalendarConfigured } from "@/lib/google-calendar";
 import { getRepository } from "@/lib/repository-provider";
 import { getSearchParam, handleRouteError } from "@/lib/route-helpers";
 import { getCurrentUser } from "@/lib/session";
-import type { Lead, User } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-function canAccessLead(user: User, lead: Lead) {
-  if (user.role === "owner") return true;
-  if (user.role === "salesperson") return lead.assigned_user_id === user.id;
-  return !user.store_id || lead.store_id === user.store_id;
-}
 
 function parseDate(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return null;

@@ -88,16 +88,29 @@ class FakeRepo {
     body: string;
     external_message_id?: string | null;
     raw_payload?: unknown;
+    is_manual?: boolean;
   }) {
+    if (input.external_message_id) {
+      const existing = await this.findMessageByExternalId(input.external_message_id);
+      if (existing) {
+        return existing;
+      }
+    }
+
     const message: Message = {
       id: `message-${this.messages.length + 1}`,
       provider: input.provider || "whatsapp",
       created_at: new Date("2026-06-10T12:00:00.000Z").toISOString(),
       ...input,
-      external_message_id: input.external_message_id ?? null
+      external_message_id: input.external_message_id ?? null,
+      is_manual: input.is_manual ?? false
     };
     this.messages.push(message);
     return message;
+  }
+
+  async findMessageByExternalId(externalMessageId: string) {
+    return this.messages.find((message) => message.external_message_id === externalMessageId) || null;
   }
 
   async createActivity(input: unknown) {
@@ -133,6 +146,26 @@ test("webhook creates a Hialeah lead from to_number and logs inbound message", a
   assert.equal(repo.leads[0].assigned_user_id, "sales-hialeah");
   assert.equal(repo.messages[0].direction, "inbound");
   assert.equal(repo.messages[0].lead_id, repo.leads[0].id);
+});
+
+test("webhook ignores a duplicate delivery of the same WhatsApp message id", async () => {
+  const repo = new FakeRepo();
+  const payload = {
+    to_number: "786-748-9064",
+    from_number: "+1 (305) 555-0199",
+    body: "Looking for a dining table",
+    name: "Jose Perez",
+    message_id: "wamid.duplicate-test"
+  };
+
+  const first = await processWhatsappWebhook(payload, repo);
+  const second = await processWhatsappWebhook(payload, repo);
+
+  assert.equal(repo.leads.length, 1);
+  assert.equal(repo.messages.length, 1);
+  assert.equal(first.leads[0].created, true);
+  assert.equal(second.leads[0].duplicate, true);
+  assert.equal(second.leads[0].leadId, first.leads[0].leadId);
 });
 
 test("webhook updates an existing lead for the same store and customer number", async () => {

@@ -63,6 +63,7 @@ export type Message = {
   body: string | null;
   external_message_id: string | null;
   raw_payload?: unknown;
+  is_manual: boolean;
   created_at: string;
 };
 
