@@ -1,9 +1,11 @@
 import { STORE_WHATSAPP_NUMBERS } from "./constants";
 import { normalizePhone } from "./phone";
+import { routeStoreFromToNumber } from "./routing";
 import { query, type DbClient } from "./db";
 import type {
   Activity,
   Appointment,
+  DestinationNumber,
   Lead,
   LeadSource,
   LeadStatus,
@@ -29,6 +31,7 @@ export type CreateLeadInput = {
   store_id: StoreId;
   assigned_user_id: string | null;
   source: LeadSource;
+  first_touch_ad_id?: string | null;
 };
 
 export type UpdateLeadInput = {
@@ -55,7 +58,22 @@ export type CreateMessageInput = {
   body: string;
   external_message_id?: string | null;
   raw_payload?: unknown;
+  referral_source_type?: string | null;
+  referral_source_id?: string | null;
+  referral_source_url?: string | null;
+  referral_headline?: string | null;
   is_manual?: boolean;
+};
+
+export type DestinationNumberRoute = {
+  storeId: StoreId;
+  userId: string | null;
+};
+
+export type UpsertDestinationNumberInput = {
+  phone_number: string;
+  store_id: StoreId;
+  user_id: string | null;
 };
 
 export type CreateActivityInput = {
@@ -221,8 +239,8 @@ export async function pickSalespersonForStore(storeId: StoreId, client?: DbClien
 export async function createLead(input: CreateLeadInput, client?: DbClient): Promise<Lead> {
   const result = await query<Lead>(
     `
-      INSERT INTO leads (name, phone, whatsapp_number, store_id, assigned_user_id, source)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO leads (name, phone, whatsapp_number, store_id, assigned_user_id, source, first_touch_ad_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (store_id, whatsapp_number) DO NOTHING
       RETURNING *
     `,
@@ -232,7 +250,8 @@ export async function createLead(input: CreateLeadInput, client?: DbClient): Pro
       normalizePhone(input.whatsapp_number),
       input.store_id,
       input.assigned_user_id,
-      input.source
+      input.source,
+      input.first_touch_ad_id || null
     ],
     client
   );
@@ -314,9 +333,13 @@ export async function createMessage(input: CreateMessageInput, client?: DbClient
         body,
         external_message_id,
         raw_payload,
+        referral_source_type,
+        referral_source_id,
+        referral_source_url,
+        referral_headline,
         is_manual
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       ON CONFLICT (external_message_id) WHERE external_message_id IS NOT NULL DO NOTHING
       RETURNING *
     `,
@@ -329,6 +352,10 @@ export async function createMessage(input: CreateMessageInput, client?: DbClient
       input.body,
       input.external_message_id || null,
       input.raw_payload ? JSON.stringify(input.raw_payload) : null,
+      input.referral_source_type || null,
+      input.referral_source_id || null,
+      input.referral_source_url || null,
+      input.referral_headline || null,
       input.is_manual ?? false
     ],
     client
@@ -478,4 +505,51 @@ export async function listAppointments(filters: AppointmentFilters = {}): Promis
 
 export function getStoreWhatsappNumber(storeId: StoreId): string {
   return STORE_WHATSAPP_NUMBERS[storeId];
+}
+
+/** Routes an inbound WhatsApp destination number to a salesperson, if one has been
+ * explicitly mapped via destination_numbers; otherwise falls back to the existing
+ * store-level routing in src/lib/routing.ts (userId: null means "not yet assigned to
+ * a specific person — pick one for the store as usual"). */
+export async function routeDestinationNumber(toNumber: string): Promise<DestinationNumberRoute> {
+  const normalized = normalizePhone(toNumber);
+  const result = await query<{ store_id: StoreId; user_id: string | null }>(
+    "SELECT store_id, user_id FROM destination_numbers WHERE phone_number = $1",
+    [normalized]
+  );
+
+  if (result.rows[0]) {
+    return { storeId: result.rows[0].store_id, userId: result.rows[0].user_id };
+  }
+
+  return { storeId: routeStoreFromToNumber(toNumber), userId: null };
+}
+
+export async function listDestinationNumbers(): Promise<DestinationNumber[]> {
+  const result = await query<DestinationNumber>(
+    `
+      SELECT d.*, u.name AS user_name
+      FROM destination_numbers d
+      LEFT JOIN users u ON u.id = d.user_id
+      ORDER BY d.store_id, d.phone_number
+    `
+  );
+
+  return result.rows;
+}
+
+export async function upsertDestinationNumber(input: UpsertDestinationNumberInput): Promise<DestinationNumber> {
+  const result = await query<DestinationNumber>(
+    `
+      INSERT INTO destination_numbers (phone_number, store_id, user_id)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (phone_number) DO UPDATE
+      SET store_id = EXCLUDED.store_id,
+          user_id = EXCLUDED.user_id
+      RETURNING *
+    `,
+    [normalizePhone(input.phone_number), input.store_id, input.user_id]
+  );
+
+  return result.rows[0];
 }

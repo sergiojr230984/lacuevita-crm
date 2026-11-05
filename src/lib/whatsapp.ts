@@ -1,5 +1,5 @@
 import { normalizePhone } from "./phone";
-import type { LeadSource, ParsedWhatsappMessage } from "./types";
+import type { LeadSource, ParsedWhatsappMessage, ParsedWhatsappReferral } from "./types";
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -20,12 +20,35 @@ function readBody(message: Record<string, unknown>): string {
   );
 }
 
-function parseSource(value: unknown): LeadSource {
+function parseSource(value: unknown, hasReferral: boolean): LeadSource {
   if (value === "meta_ads" || value === "whatsapp" || value === "walk_in" || value === "other") {
     return value;
   }
 
-  return "whatsapp";
+  // Meta attaches a `referral` object to the first inbound message of a Click-to-WhatsApp
+  // ad conversation — its presence is the signal that this lead came from a Meta ad.
+  return hasReferral ? "meta_ads" : "whatsapp";
+}
+
+/** Meta's `referral` object, present on the first inbound message of a Click-to-WhatsApp
+ * ad conversation. Only `source_id` (the ad id) and `source_url`/`headline` are ever sent —
+ * campaign name isn't part of this payload and would need a separate Marketing API lookup. */
+function readReferral(value: unknown): ParsedWhatsappReferral | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const referral = value as Record<string, unknown>;
+  const sourceId = asString(referral.source_id);
+  const sourceType = asString(referral.source_type);
+  const sourceUrl = asString(referral.source_url);
+  const headline = asString(referral.headline);
+
+  if (!sourceId && !sourceType && !sourceUrl && !headline) {
+    return null;
+  }
+
+  return { sourceType, sourceId, sourceUrl, headline };
 }
 
 export function parseWhatsappWebhook(payload: unknown): ParsedWhatsappMessage[] {
@@ -38,6 +61,8 @@ export function parseWhatsappWebhook(payload: unknown): ParsedWhatsappMessage[] 
   const simpleFrom = asString(simplePayload.from_number) || asString(simplePayload.from);
 
   if (simpleTo && simpleFrom) {
+    const simpleReferral = readReferral(simplePayload.referral);
+
     return [
       {
         toNumber: normalizePhone(simpleTo),
@@ -45,7 +70,8 @@ export function parseWhatsappWebhook(payload: unknown): ParsedWhatsappMessage[] 
         body: asString(simplePayload.body) || asString(simplePayload.message) || "",
         customerName: asString(simplePayload.name),
         messageId: asString(simplePayload.message_id) || asString(simplePayload.id),
-        source: parseSource(simplePayload.source),
+        source: parseSource(simplePayload.source, Boolean(simpleReferral)),
+        referral: simpleReferral,
         raw: payload
       }
     ];
@@ -83,13 +109,16 @@ export function parseWhatsappWebhook(payload: unknown): ParsedWhatsappMessage[] 
           return normalizePhone(asString(contactRecord.wa_id) || "") === normalizePhone(fromNumber);
         }) as { profile?: { name?: unknown } } | undefined;
 
+        const referral = readReferral(messageRecord.referral);
+
         parsed.push({
           toNumber: normalizePhone(toNumber),
           fromNumber: normalizePhone(fromNumber),
           body: readBody(messageRecord),
           customerName: asString(contact?.profile?.name),
           messageId: asString(messageRecord.id),
-          source: "whatsapp",
+          source: parseSource(undefined, Boolean(referral)),
+          referral,
           raw: payload
         });
       }

@@ -2,7 +2,6 @@ import type { NextRequest } from "next/server";
 import { jsonError, jsonOk } from "@/lib/api-response";
 import { normalizePhone } from "@/lib/phone";
 import { getRepository } from "@/lib/repository-provider";
-import { routeStoreFromToNumber } from "@/lib/routing";
 import {
   getSearchParam,
   handleRouteError,
@@ -68,7 +67,8 @@ export async function POST(request: NextRequest) {
       return jsonError("to_number and customer phone are required", 422);
     }
 
-    const storeId = routeStoreFromToNumber(toNumber);
+    const route = await repo.routeDestinationNumber(toNumber);
+    const storeId = route.storeId;
     const whatsappNumber = normalizePhone(customerNumber);
     const existing = await repo.findLeadByWhatsapp(storeId, whatsappNumber);
 
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       return jsonOk({ lead: existing, created: false });
     }
 
-    const assignedUserId = await repo.pickSalespersonForStore(storeId);
+    const assignedUserId = route.userId || (await repo.pickSalespersonForStore(storeId));
     const lead = await repo.createLead({
       name: typeof body.name === "string" ? body.name : null,
       phone: whatsappNumber,
@@ -91,7 +91,8 @@ export async function POST(request: NextRequest) {
       type: "lead_created",
       metadata: {
         routed_from_to_number: normalizePhone(toNumber),
-        store_id: storeId
+        store_id: storeId,
+        routed_to_user_id: route.userId
       }
     });
 

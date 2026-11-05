@@ -9,13 +9,16 @@ import {
   demoFindMessageByExternalId,
   demoGetLeadById,
   demoListAppointments,
+  demoListDestinationNumbers,
   demoListLeads,
   demoListMessages,
   demoListStores,
   demoListUsers,
   demoAuthenticateUser,
   demoPickSalespersonForStore,
+  demoRouteDestinationNumber,
   demoUpdateLead,
+  demoUpsertDestinationNumber,
   shouldUseDemoStore
 } from "./demo-store";
 import {
@@ -27,13 +30,16 @@ import {
   getLeadById,
   getMessageByExternalId,
   listAppointments,
+  listDestinationNumbers,
   listLeads,
   listMessages,
   listStores,
   listUsers,
   authenticateUser,
   pickSalespersonForStore,
-  updateLead
+  routeDestinationNumber,
+  updateLead,
+  upsertDestinationNumber
 } from "./repositories";
 
 const databaseRepository = {
@@ -44,6 +50,9 @@ const databaseRepository = {
   getLeadById,
   findLeadByWhatsapp,
   pickSalespersonForStore,
+  routeDestinationNumber,
+  listDestinationNumbers,
+  upsertDestinationNumber,
   createLead,
   updateLead,
   createMessage,
@@ -61,6 +70,9 @@ const demoRepository = {
   getLeadById: demoGetLeadById,
   findLeadByWhatsapp: demoFindLeadByWhatsapp,
   pickSalespersonForStore: demoPickSalespersonForStore,
+  routeDestinationNumber: demoRouteDestinationNumber,
+  listDestinationNumbers: demoListDestinationNumbers,
+  upsertDestinationNumber: demoUpsertDestinationNumber,
   createLead: demoCreateLead,
   updateLead: demoUpdateLead,
   createMessage: demoCreateMessage,
@@ -79,6 +91,7 @@ export function getCrmRepository(): CrmRepository {
     return {
       findLeadByWhatsapp: demoFindLeadByWhatsapp,
       pickSalespersonForStore: demoPickSalespersonForStore,
+      routeDestinationNumber: demoRouteDestinationNumber,
       createLead: demoCreateLead,
       updateLead: demoUpdateLead,
       createMessage: demoCreateMessage,
@@ -90,6 +103,7 @@ export function getCrmRepository(): CrmRepository {
   return {
     findLeadByWhatsapp,
     pickSalespersonForStore,
+    routeDestinationNumber,
     createLead,
     updateLead,
     createMessage,
@@ -100,6 +114,7 @@ export function getCrmRepository(): CrmRepository {
         fn({
           findLeadByWhatsapp: (storeId, whatsappNumber) => findLeadByWhatsapp(storeId, whatsappNumber, client),
           pickSalespersonForStore: (storeId) => pickSalespersonForStore(storeId, client),
+          routeDestinationNumber,
           createLead: (input) => createLead(input, client),
           updateLead: (id, input) => updateLead(id, input, client),
           createMessage: (input) => createMessage(input, client),

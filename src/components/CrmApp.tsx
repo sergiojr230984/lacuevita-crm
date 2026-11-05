@@ -14,10 +14,12 @@ import {
   FileText,
   Lock,
   LogOut,
+  Megaphone,
   MessageCircle,
   Phone,
   RefreshCw,
   Send,
+  Smartphone,
   Store,
   Trophy,
   UserPlus,
@@ -27,7 +29,16 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LEAD_STATUS_LABELS_ES, LOST_REASONS, STORE_WHATSAPP_NUMBERS } from "@/lib/constants";
 import { formatPhone } from "@/lib/phone";
-import { LEAD_STATUSES, type Appointment, type DashboardMetrics, type LeadStatus, type LeadWithFlags, type User } from "@/lib/types";
+import {
+  LEAD_STATUSES,
+  type Appointment,
+  type DashboardMetrics,
+  type DestinationNumber,
+  type LeadStatus,
+  type LeadWithFlags,
+  type StoreId,
+  type User
+} from "@/lib/types";
 
 type ApiEnvelope<T> = {
   ok: boolean;
@@ -678,6 +689,13 @@ function LeadPanel({
             </div>
           </div>
 
+          {lead.first_touch_ad_id && (
+            <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">
+              <Megaphone size={13} />
+              {es ? "Desde un anuncio de Meta" : "From a Meta ad"} · {lead.first_touch_ad_id}
+            </div>
+          )}
+
           <div className="mt-4 rounded-lg border border-stone-200 p-3">
             <div className="text-sm font-semibold text-ink">{es ? "Registro de Contacto" : "Contact Log"}</div>
             <textarea
@@ -995,6 +1013,146 @@ function SupervisorPanel({
   );
 }
 
+function WhatsAppNumbersPanel({
+  destinationNumbers,
+  salespeople,
+  isOwner,
+  defaultStoreId,
+  onAssign,
+  onAddNumber
+}: {
+  destinationNumbers: DestinationNumber[];
+  salespeople: User[];
+  isOwner: boolean;
+  defaultStoreId: StoreId;
+  onAssign: (phoneNumber: string, storeId: StoreId, userId: string | null) => Promise<void>;
+  onAddNumber: (phoneNumber: string, storeId: StoreId, userId: string | null) => Promise<void>;
+}) {
+  const [newPhone, setNewPhone] = useState("");
+  const [newStore, setNewStore] = useState<StoreId>(defaultStoreId);
+  const [newUserId, setNewUserId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function submitNew() {
+    if (!newPhone.trim()) {
+      setFormError("Enter a phone number");
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+
+    try {
+      await onAddNumber(newPhone.trim(), newStore, newUserId || null);
+      setNewPhone("");
+      setNewUserId("");
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Unable to add number");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg bg-white p-4 shadow-soft ring-1 ring-stone-200">
+      <div className="flex items-center gap-2">
+        <Smartphone size={16} className="text-stone-500" />
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-stone-500">WhatsApp Numbers</h2>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">
+        Map a destination number straight to a salesperson. An unmapped number keeps routing to the store as usual —
+        pilot one number before connecting a salesperson&apos;s real production number.
+      </p>
+
+      {destinationNumbers.length === 0 ? (
+        <div className="mt-3 text-sm text-stone-500">No numbers configured yet.</div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {destinationNumbers.map((entry) => {
+            const storeSalespeople = salespeople.filter((person) => person.store_id === entry.store_id);
+            return (
+              <div
+                key={entry.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 p-3"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-ink">{formatPhone(entry.phone_number)}</div>
+                  <div className="mt-1 text-xs text-stone-500">
+                    {storeLabel(entry.store_id)} ·{" "}
+                    {entry.user_name ? `Routes to ${entry.user_name}` : "Unassigned — store round robin"}
+                  </div>
+                </div>
+                <select
+                  defaultValue={entry.user_id || ""}
+                  onChange={(event) => void onAssign(entry.phone_number, entry.store_id, event.target.value || null)}
+                  className="rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-medium text-stone-700"
+                >
+                  <option value="">Unassigned (store round robin)</option>
+                  {storeSalespeople.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-4 border-t border-stone-200 pt-3">
+        <div className="text-xs font-semibold uppercase tracking-normal text-stone-500">Add a number</div>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_110px_1fr_auto]">
+          <input
+            value={newPhone}
+            onChange={(event) => setNewPhone(event.target.value)}
+            placeholder="+1 786 555 0100"
+            className="rounded-lg border border-stone-200 px-3 py-2 text-sm text-ink"
+          />
+          {isOwner ? (
+            <select
+              value={newStore}
+              onChange={(event) => setNewStore(event.target.value as StoreId)}
+              className="rounded-lg border border-stone-200 px-2 py-2 text-sm text-ink"
+            >
+              <option value="hialeah">Hialeah</option>
+              <option value="sw">SW</option>
+            </select>
+          ) : (
+            <div className="flex items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
+              {storeLabel(newStore)}
+            </div>
+          )}
+          <select
+            value={newUserId}
+            onChange={(event) => setNewUserId(event.target.value)}
+            className="rounded-lg border border-stone-200 px-2 py-2 text-sm text-ink"
+          >
+            <option value="">Unassigned (store round robin)</option>
+            {salespeople
+              .filter((person) => person.store_id === newStore)
+              .map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.name}
+                </option>
+              ))}
+          </select>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void submitNew()}
+            className="inline-flex items-center justify-center rounded-lg bg-fern px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {saving ? "Saving" : "Add"}
+          </button>
+        </div>
+        {formError && <div className="mt-2 text-sm text-rose-700">{formError}</div>}
+      </div>
+    </section>
+  );
+}
+
 function EmptyConnection({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-4 py-10">
@@ -1134,6 +1292,7 @@ export function CrmApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [salespeople, setSalespeople] = useState<User[]>([]);
+  const [destinationNumbers, setDestinationNumbers] = useState<DestinationNumber[]>([]);
 
   const accountScope = useMemo(() => {
     if (!currentUser) return "";
@@ -1191,7 +1350,7 @@ export function CrmApp() {
   }, [authChecked, currentUser, refreshDashboard]);
 
   useEffect(() => {
-    if (currentUser?.role !== "manager") {
+    if (currentUser?.role !== "manager" && currentUser?.role !== "owner") {
       setSalespeople([]);
       return;
     }
@@ -1199,11 +1358,13 @@ export function CrmApp() {
     let cancelled = false;
     void apiFetch<{ users: User[] }>("/api/users")
       .then((payload) => {
-        if (!cancelled) {
-          setSalespeople(
-            payload.users.filter((user) => user.role === "salesperson" && user.store_id === currentUser.store_id)
-          );
-        }
+        if (cancelled) return;
+        const salespersonUsers = payload.users.filter((user) => user.role === "salesperson");
+        setSalespeople(
+          currentUser.role === "manager"
+            ? salespersonUsers.filter((user) => user.store_id === currentUser.store_id)
+            : salespersonUsers
+        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -1215,6 +1376,35 @@ export function CrmApp() {
       cancelled = true;
     };
   }, [currentUser]);
+
+  const loadDestinationNumbers = useCallback(async () => {
+    if (currentUser?.role !== "manager" && currentUser?.role !== "owner") {
+      setDestinationNumbers([]);
+      return;
+    }
+
+    try {
+      const payload = await apiFetch<{ destinationNumbers: DestinationNumber[] }>("/api/destination-numbers");
+      setDestinationNumbers(payload.destinationNumbers);
+    } catch {
+      setDestinationNumbers([]);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    void loadDestinationNumbers();
+  }, [loadDestinationNumbers]);
+
+  const upsertDestinationNumber = useCallback(
+    async (phoneNumber: string, storeId: StoreId, userId: string | null) => {
+      await apiFetch<{ destinationNumber: DestinationNumber }>("/api/destination-numbers", {
+        method: "POST",
+        body: JSON.stringify({ phone_number: phoneNumber, store_id: storeId, user_id: userId })
+      });
+      await loadDestinationNumbers();
+    },
+    [loadDestinationNumbers]
+  );
 
   async function logout() {
     try {
@@ -1350,6 +1540,16 @@ export function CrmApp() {
             <StageSummary metrics={metrics} />
             {currentUser.role === "manager" && (
               <SupervisorPanel leads={leads} salespeople={salespeople} onReassign={reassignLead} />
+            )}
+            {(currentUser.role === "manager" || currentUser.role === "owner") && (
+              <WhatsAppNumbersPanel
+                destinationNumbers={destinationNumbers}
+                salespeople={salespeople}
+                isOwner={currentUser.role === "owner"}
+                defaultStoreId={currentUser.store_id || "hialeah"}
+                onAssign={upsertDestinationNumber}
+                onAddNumber={upsertDestinationNumber}
+              />
             )}
             <KanbanBoard leads={leads} onOpenLead={setSelectedLead} onMoveLead={moveLead} />
           </>

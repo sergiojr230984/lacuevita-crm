@@ -38,6 +38,7 @@ function makeLead(partial: Partial<Lead> = {}): Lead {
     notes: null,
     lost_reason: null,
     estimated_sale_amount: null,
+    first_touch_ad_id: null,
     last_contact_date: null,
     next_follow_up_date: null,
     follow_up_count: 0,

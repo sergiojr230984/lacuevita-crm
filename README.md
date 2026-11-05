@@ -72,6 +72,8 @@ The CRM creates appointments from the lead panel and saves them into one shared 
 - `GET /api/dashboard` - Owner, manager, and salesperson metrics.
 - `GET /api/leads` - List leads.
 - `PATCH /api/leads/:id` - Update lead fields or pipeline status.
+- `GET /api/destination-numbers` - List WhatsApp destination numbers and who they route to (owner/manager only).
+- `POST /api/destination-numbers` - Map a WhatsApp number to a salesperson, or clear it back to store-level routing (owner/manager only).
 
 ## Test Payload
 
